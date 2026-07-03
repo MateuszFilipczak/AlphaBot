@@ -27,6 +27,9 @@ const put = send("PUT");
 
 export const getPortfolios = () => request("/api/portfolios");
 export const createPortfolio = (body) => post("/api/portfolios", body);
+export const renamePortfolio = (id, name) => put(`/api/portfolios/${id}`, { name });
+export const deletePortfolio = (id, force = false) =>
+  request(`/api/portfolios/${id}${force ? "?force=true" : ""}`, { method: "DELETE" });
 export const getSummary = (pid) => request(`/api/portfolios/${pid}/summary`);
 export const getHistory = (pid, range) => request(`/api/portfolios/${pid}/history?range=${range}`);
 export const getDeposits = (pid) => request(`/api/portfolios/${pid}/deposits`);

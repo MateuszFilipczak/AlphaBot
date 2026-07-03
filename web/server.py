@@ -209,7 +209,8 @@ def _current_cash(portfolio) -> float:
 
 @app.get("/api/portfolios")
 def list_portfolios():
-    return [dict(p) for p in db.get_portfolios()]
+    # txn_count/deposit_count let the UI pick the right delete flow
+    return db.get_portfolios_with_counts()
 
 
 @app.post("/api/portfolios", status_code=201)
@@ -231,15 +232,22 @@ def rename_portfolio(portfolio_id: int, body: PortfolioRename):
 
 
 @app.delete("/api/portfolios/{portfolio_id}")
-def remove_portfolio(portfolio_id: int):
+def remove_portfolio(portfolio_id: int, force: bool = False):
+    """Empty portfolio: plain delete. Portfolio with data: requires
+    ?force=true and cascades — its transactions and cash flows are gone for
+    good (the UI shows the counts and asks for explicit confirmation)."""
     _get_portfolio_or_404(portfolio_id)
-    if not db.portfolio_is_empty(portfolio_id):
+    if db.portfolio_is_empty(portfolio_id):
+        db.delete_portfolio(portfolio_id)
+        return {"deleted": portfolio_id, "transactions": 0, "deposits": 0}
+    if not force:
         raise HTTPException(
             status_code=400,
-            detail="Portfel ma transakcje lub wpłaty — usuń je najpierw (kasowane są tylko puste portfele)",
+            detail="Portfel ma transakcje lub wpłaty — usunięcie z danymi wymaga force=true",
         )
-    db.delete_portfolio(portfolio_id)
-    return {"deleted": portfolio_id}
+    txns, deps = db.delete_portfolio_cascade(portfolio_id)
+    _history_cache.pop(portfolio_id, None)
+    return {"deleted": portfolio_id, "transactions": txns, "deposits": deps}
 
 
 @app.get("/api/portfolios/{portfolio_id}/summary")

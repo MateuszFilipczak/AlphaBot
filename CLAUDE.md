@@ -87,10 +87,16 @@ are editable/deletable (PUT/DELETE `/api/deposits/{id}`) guarded by `_min_runnin
 may not push the running cash balance below its current floor at any point in the timeline (inflows
 count before outflows within a day; legacy already-negative histories keep their floor).
 
-**Portfolios are user-managed** (POST/PUT/DELETE `/api/portfolios`; delete only when empty). The
-three starter portfolios seed ONLY into an empty table so deletions stick. `SUPPORTED_CURRENCIES`
-includes GBP — older DBs get the portfolios table rebuilt once in init_db (SQLite can't alter a
-CHECK). The CLI still targets the oldest USD portfolio via `get_usd_portfolio_id()`.
+**Portfolios are user-managed** (POST/PUT/DELETE `/api/portfolios`). DELETE of an empty portfolio
+is plain; with data it requires `?force=true` and cascades (transactions + deposits gone) — the
+list endpoint returns `txn_count`/`deposit_count` so the UI can pick the right confirm flow (those
+counts must stay fresh: App reloads the portfolio list on every refresh tick). The three starter
+portfolios seed ONLY into an empty table so deletions stick; zero portfolios in a currency is a
+valid state (empty-state UI). Navigation is two-level: fixed currency tabs USD/EUR/PLN (GBP only
+if a GBP portfolio exists) over per-currency portfolio tabs; the new-portfolio modal inherits the
+active tab's currency. `SUPPORTED_CURRENCIES` includes GBP — older DBs get the portfolios table
+rebuilt once in init_db (SQLite can't alter a CHECK). The CLI still targets the oldest USD
+portfolio via `get_usd_portfolio_id()`.
 
 **Portfolio value history** (`GET /api/portfolios/{id}/history`): reconstructed day-by-day by
 `valuation.py` (pure, unit-tested) from the ledger — cash from flows, positions from cumulative

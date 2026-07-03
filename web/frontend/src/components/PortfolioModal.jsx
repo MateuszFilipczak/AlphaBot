@@ -1,11 +1,10 @@
 import { useState } from "react";
 import { createPortfolio } from "../api.js";
 
-const CURRENCIES = ["USD", "EUR", "PLN", "GBP"];
-
-export default function PortfolioModal({ onClose, onSaved }) {
+// New-portfolio modal. The currency comes from the active currency tab and
+// is NOT editable here — you create portfolios in the currency you're in.
+export default function PortfolioModal({ currency, onClose, onSaved }) {
   const [name, setName] = useState("");
-  const [currency, setCurrency] = useState("PLN");
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -29,25 +28,15 @@ export default function PortfolioModal({ onClose, onSaved }) {
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit}>
-        <h3>Nowy portfel</h3>
+        <h3>Nowy portfel — {currency}</h3>
         <div className="field">
-          <label>Nazwa (np. PLN (IKE))</label>
+          <label>Nazwa (np. IKE, IKZE, Broker XYZ)</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="field">
           <label>Waluta</label>
-          <div className="type-toggle">
-            {CURRENCIES.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`buy ${currency === c ? "active" : ""}`}
-                onClick={() => setCurrency(c)}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
+          <input value={currency} disabled />
+          <div className="hint">Waluta pochodzi z aktywnej zakładki.</div>
         </div>
         {error && <div className="form-error">{error}</div>}
         <div className="modal-actions">

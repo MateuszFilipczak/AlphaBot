@@ -38,7 +38,36 @@ button { font: inherit; cursor: pointer; }
 .brand span { color: var(--accent); }
 
 .switcher { display: flex; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
-.switcher .new-portfolio { color: var(--accent); }
+
+/* ---- Portfolio tabs (under the currency switcher) ---- */
+.portfolio-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 2px 0 18px;
+}
+.agg-line { color: var(--muted); font-size: 13px; }
+.agg-line b { color: var(--ink); font-weight: 600; }
+.ptabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ptab {
+  display: inline-flex; align-items: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+}
+.ptab.active { background: var(--surface-2); border-color: var(--accent); }
+.ptab-btn {
+  border: 0; background: transparent; color: var(--ink-2);
+  padding: 6px 12px; border-radius: 10px; font-weight: 600;
+}
+.ptab.active .ptab-btn { color: var(--ink); }
+.ptab .kebab { padding: 2px 6px 2px 0; }
+.ptab-new {
+  border: 1px dashed var(--border); background: transparent; color: var(--accent);
+  padding: 6px 12px; border-radius: 10px; font-weight: 600;
+}
+.ptab-new:hover { border-color: var(--accent); }
+
+.empty-currency {
+  text-align: center; padding: 64px 16px; color: var(--muted);
+}
+.empty-currency p { font-size: 17px; margin: 0 0 16px; }
 .switcher button {
   border: 0; background: transparent; color: var(--ink-2);
   padding: 6px 16px; border-radius: 8px; font-weight: 600;

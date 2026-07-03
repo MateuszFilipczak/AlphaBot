@@ -61,12 +61,45 @@ def test_invalid_currency_rejected(client):
     assert r.status_code == 422
 
 
-def test_delete_nonempty_portfolio_blocked(client):
+def test_delete_nonempty_portfolio_requires_force(client):
     pid = make_portfolio(client, "Pełny")
     client.post(f"/api/portfolios/{pid}/deposits", json={"amount": 100, "date": "2026-01-02"})
     r = client.delete(f"/api/portfolios/{pid}")
     assert r.status_code == 400
-    assert "puste" in r.json()["detail"]
+    assert "force" in r.json()["detail"]
+    # portfolio and its data survive the refused delete
+    assert client.get(f"/api/portfolios/{pid}/summary").status_code == 200
+
+
+def test_force_delete_cascades_transactions_and_deposits(client):
+    pid = make_portfolio(client, "Kasowany")
+    client.post(f"/api/portfolios/{pid}/deposits", json={"amount": 1000, "date": "2026-01-02"})
+    client.post(f"/api/portfolios/{pid}/transactions", json={
+        "ticker": "CASC1", "type": "BUY", "shares": 2, "price": 100, "date": "2026-01-05",
+    })
+    other = make_portfolio(client, "Ocalały")
+    client.post(f"/api/portfolios/{other}/deposits", json={"amount": 50, "date": "2026-01-02"})
+
+    r = client.delete(f"/api/portfolios/{pid}?force=true")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": pid, "transactions": 1, "deposits": 1}
+    assert client.get(f"/api/portfolios/{pid}/summary").status_code == 404
+    # the other portfolio's data is untouched
+    deposits = client.get(f"/api/portfolios/{other}/deposits").json()
+    assert len(deposits) == 1 and deposits[0]["amount"] == 50
+
+
+def test_portfolio_list_includes_data_counts(client):
+    pid = make_portfolio(client, "Liczniki")
+    client.post(f"/api/portfolios/{pid}/deposits", json={"amount": 100, "date": "2026-01-02"})
+    client.post(f"/api/portfolios/{pid}/transactions", json={
+        "ticker": "CNT1", "type": "BUY", "shares": 1, "price": 10, "date": "2026-01-05",
+    })
+    p = next(p for p in client.get("/api/portfolios").json() if p["id"] == pid)
+    assert (p["txn_count"], p["deposit_count"]) == (1, 1)
+    # counts drive the UI delete flow: this one needs the force path
+    assert client.delete(f"/api/portfolios/{pid}").status_code == 400
+    assert client.delete(f"/api/portfolios/{pid}?force=true").status_code == 200
 
 
 # ---- Instrument type override ---------------------------------------------------

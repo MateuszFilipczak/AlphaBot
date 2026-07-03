@@ -72,8 +72,12 @@ python main.py web        # startuje serwer i otwiera http://localhost:8000
 
 **Co potrafi:**
 
-- **Dowolne portfele użytkownika** (np. osobne IKE/IKZE) w walutach USD/EUR/PLN/GBP — przełącznik
-  u góry (wybór trzymany w URL), „+ Nowy portfel" tworzy kolejne; pusty portfel można usunąć przez API
+- **Waluty → portfele**: stałe zakładki USD/EUR/PLN u góry (GBP pojawia się, gdy istnieje portfel
+  GBP), pod nimi taby portfeli danej waluty (np. osobne IKE/IKZE) z linią „Łącznie: wartość · zysk"
+  agregującą całą walutę. „+ Nowy portfel" tworzy portfel w aktywnej walucie; menu ⋯ przy aktywnym
+  tabie pozwala zmienić nazwę lub usunąć portfel (pusty — proste potwierdzenie; z danymi —
+  ostrzeżenie z licznikami i kasowanie kaskadowe transakcji oraz wpłat). Waluta może mieć zero
+  portfeli — wtedy widać czytelny pusty stan
 - **Wykres wartości portfela w czasie** na dashboardzie — rekonstrukcja dzień po dniu z historii
   transakcji i wpłat (ceny historyczne + kursy FX z yfinance, forward-fill przez weekendy), z
   przerywaną linią wpłaconego kapitału netto — od razu widać kiedy portfel jest nad/pod wpłatami

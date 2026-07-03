@@ -195,6 +195,19 @@ def get_portfolios() -> list[sqlite3.Row]:
         return conn.execute("SELECT * FROM portfolios ORDER BY id").fetchall()
 
 
+def get_portfolios_with_counts() -> list[dict]:
+    """Portfolios plus how much data each holds — the UI needs the counts to
+    pick the right delete flow (simple confirm vs. cascade warning)."""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT p.*,
+                   (SELECT COUNT(*) FROM transactions t WHERE t.portfolio_id = p.id) AS txn_count,
+                   (SELECT COUNT(*) FROM deposits d WHERE d.portfolio_id = p.id) AS deposit_count
+            FROM portfolios p ORDER BY p.id
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_portfolio_by_id(portfolio_id: int) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute("SELECT * FROM portfolios WHERE id = ?", (portfolio_id,)).fetchone()
@@ -234,6 +247,20 @@ def portfolio_is_empty(portfolio_id: int) -> bool:
 def delete_portfolio(portfolio_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
+
+
+def delete_portfolio_cascade(portfolio_id: int) -> tuple[int, int]:
+    """Deletes a portfolio WITH all its transactions and cash flows.
+    Returns (deleted_transactions, deleted_deposits)."""
+    with get_conn() as conn:
+        txns = conn.execute(
+            "DELETE FROM transactions WHERE portfolio_id = ?", (portfolio_id,)
+        ).rowcount
+        deps = conn.execute(
+            "DELETE FROM deposits WHERE portfolio_id = ?", (portfolio_id,)
+        ).rowcount
+        conn.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
+        return txns, deps
 
 
 # ---- Transactions -----------------------------------------------------------
