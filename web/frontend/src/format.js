@@ -31,5 +31,10 @@ export function fmtDate(iso) {
   return iso.slice(0, 10);
 }
 
-// CSS class for P&L coloring
+// CSS class for profit coloring
 export const pnlClass = (v) => (v === null || v === undefined ? "" : v >= 0 ? "pnl-up" : "pnl-down");
+
+// Instrument type → user-facing badge label (ETC = commodity tracker,
+// often mislabeled by Yahoo — the user can override it per instrument)
+export const typeLabel = (t) => (t === "ETF" ? "ETF" : t === "ETC" ? "ETC" : "Akcja");
+export const typeBadgeClass = (t) => (t === "ETF" ? "etf" : t === "ETC" ? "etc" : "");

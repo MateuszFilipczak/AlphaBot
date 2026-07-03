@@ -37,7 +37,8 @@ button { font: inherit; cursor: pointer; }
 .brand { font-weight: 700; font-size: 18px; letter-spacing: 0.2px; }
 .brand span { color: var(--accent); }
 
-.switcher { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.switcher { display: flex; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.switcher .new-portfolio { color: var(--accent); }
 .switcher button {
   border: 0; background: transparent; color: var(--ink-2);
   padding: 6px 16px; border-radius: 8px; font-weight: 600;
@@ -91,6 +92,8 @@ tr.row-total td { font-weight: 700; border-top: 1px solid var(--border); }
   background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--border);
 }
 .badge.etf { color: var(--accent); border-color: var(--accent); }
+.badge.etc { color: #c98500; border-color: #c98500; }
+.legend .dot.diamond { border-radius: 2px; transform: rotate(45deg) scale(0.85); }
 .note { color: var(--muted); font-size: 12.5px; margin: 6px 2px 0; }
 .note.warn { color: #c98500; }
 .cell-note { color: var(--muted); font-size: 12px; font-style: italic; }
@@ -129,6 +132,25 @@ h2 { font-size: 15px; color: var(--ink-2); font-weight: 600; margin: 28px 0 10px
 .seg button { border: 0; background: transparent; color: var(--ink-2); padding: 4px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; }
 .seg button.active { background: var(--page); color: var(--ink); }
 .chart-box { position: relative; height: 360px; }
+.chart-box.history { height: 240px; }
+.chart-title { font-weight: 600; color: var(--ink-2); font-size: 14px; align-self: center; margin-right: auto; }
+
+/* ---- Transaction marker dots (HTML overlay on the chart) ---- */
+.txn-dot {
+  position: absolute; width: 11px; height: 11px; z-index: 5; cursor: pointer;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%);
+  transition: transform 0.12s ease;
+}
+.txn-dot.dot-open { background: var(--up); border-radius: 50%; }
+.txn-dot.dot-closed { background: var(--muted); border-radius: 50%; }
+.txn-dot.dot-open:hover, .txn-dot.dot-closed:hover { transform: translate(-50%, -50%) scale(1.35); }
+.txn-dot.dot-sell {
+  background: var(--muted); border-radius: 2px;
+  transform: translate(-50%, -50%) rotate(45deg); /* diamond ≠ closed-buy circle */
+}
+.txn-dot.dot-sell:hover { transform: translate(-50%, -50%) rotate(45deg) scale(1.35); }
 .chart-tooltip {
   position: absolute; z-index: 10; pointer-events: none;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;

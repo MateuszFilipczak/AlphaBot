@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useSearchParams } from "react-router-dom";
 import { getPortfolios } from "./api.js";
 import TransactionModal from "./components/TransactionModal.jsx";
 import DepositModal from "./components/DepositModal.jsx";
+import PortfolioModal from "./components/PortfolioModal.jsx";
 
 // Shared app context: active portfolio (kept in the URL via ?p=), modal
 // openers, and a refresh tick that bumps after every successful write so
@@ -15,11 +16,13 @@ export default function App() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [txModal, setTxModal] = useState(null); // null | {ticker?, type?, edit?}
   const [cashModal, setCashModal] = useState(null); // null | "deposit" | "withdraw"
+  const [portfolioModal, setPortfolioModal] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const navigate = useNavigate();
 
+  const loadPortfolios = () => getPortfolios().then(setPortfolios).catch(console.error);
   useEffect(() => {
-    getPortfolios().then(setPortfolios).catch(console.error);
+    loadPortfolios();
   }, []);
 
   const portfolioId = Number(searchParams.get("p")) || portfolios[0]?.id || null;
@@ -61,6 +64,9 @@ export default function App() {
                 {p.name}
               </button>
             ))}
+            <button className="new-portfolio" onClick={() => setPortfolioModal(true)}>
+              + Nowy portfel
+            </button>
           </nav>
           <div className="actions">
             <button className="btn" onClick={() => setCashModal("deposit")}>
@@ -85,6 +91,16 @@ export default function App() {
             onSaved={() => {
               setTxModal(null);
               ctx.refresh();
+            }}
+          />
+        )}
+        {portfolioModal && (
+          <PortfolioModal
+            onClose={() => setPortfolioModal(false)}
+            onSaved={async (id) => {
+              setPortfolioModal(false);
+              await loadPortfolios();
+              navigate(`/?p=${id}`);
             }}
           />
         )}

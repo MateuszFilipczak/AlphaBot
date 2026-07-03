@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApp } from "../App.jsx";
-import { deleteTransaction, getChart, getPosition } from "../api.js";
-import { fmtDate, fmtMoney, fmtPct, fmtShares, pnlClass } from "../format.js";
+import { deleteTransaction, getChart, getPosition, setInstrumentType } from "../api.js";
+import { fmtDate, fmtMoney, fmtPct, fmtShares, pnlClass, typeBadgeClass, typeLabel } from "../format.js";
 import PriceChart from "../components/PriceChart.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
+import RowMenu from "../components/RowMenu.jsx";
 
 const RANGES = [
   ["1mo", "1M"],
@@ -14,68 +14,59 @@ const RANGES = [
   ["max", "MAX"],
 ];
 
-// ⋯ menu on a history row → Edytuj / Usuń. Rendered through a portal with
-// position:fixed so the table's overflow container can't clip it; flips
-// upward when there's no room below the button.
-const MENU_HEIGHT = 78; // 2 items + padding, matches .menu-pop styling
-const MENU_WIDTH = 124;
+const INSTRUMENT_TYPES = [
+  ["EQUITY", "Akcja"],
+  ["ETF", "ETF"],
+  ["ETC", "ETC (surowce)"],
+];
 
-function RowMenu({ onEdit, onDelete }) {
-  const [pos, setPos] = useState(null); // null = closed, {left, top} = open
-  const btnRef = useRef(null);
-  const menuRef = useRef(null);
+// Yahoo often mislabels ETCs as ETF/EQUITY — manual override, saved in the
+// instruments table.
+function InstrumentTypeModal({ ticker, current, onClose, onSaved }) {
+  const [type, setType] = useState(current ?? "EQUITY");
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  const toggle = () => {
-    if (pos) {
-      setPos(null);
-      return;
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await setInstrumentType(ticker, type);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
     }
-    const rect = btnRef.current.getBoundingClientRect();
-    const flipUp = rect.bottom + MENU_HEIGHT + 8 > window.innerHeight;
-    setPos({
-      left: Math.max(8, Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8)),
-      top: flipUp ? rect.top - MENU_HEIGHT - 4 : rect.bottom + 4,
-    });
   };
 
-  useEffect(() => {
-    if (!pos) return;
-    const close = () => setPos(null);
-    const onDown = (e) => {
-      if (btnRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
-      close();
-    };
-    document.addEventListener("mousedown", onDown);
-    // fixed positioning goes stale on scroll/resize — just close
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("scroll", close, true);
-      window.removeEventListener("resize", close);
-    };
-  }, [pos]);
-
   return (
-    <>
-      <button ref={btnRef} className="kebab" aria-label="Menu transakcji" onClick={toggle}>
-        ⋯
-      </button>
-      {pos &&
-        createPortal(
-          <div
-            ref={menuRef}
-            className="menu-pop"
-            style={{ position: "fixed", left: pos.left, top: pos.top, minWidth: MENU_WIDTH }}
-          >
-            <button onClick={() => { setPos(null); onEdit(); }}>Edytuj</button>
-            <button className="danger-item" onClick={() => { setPos(null); onDelete(); }}>
-              Usuń
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form className="modal" onSubmit={submit}>
+        <h3>Typ instrumentu — {ticker}</h3>
+        <div className="type-toggle">
+          {INSTRUMENT_TYPES.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`buy ${type === value ? "active" : ""}`}
+              onClick={() => setType(value)}
+            >
+              {label}
             </button>
-          </div>,
-          document.body
-        )}
-    </>
+          ))}
+        </div>
+        {error && <div className="form-error">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Anuluj
+          </button>
+          <button type="submit" className="btn primary" disabled={saving}>
+            {saving ? "Zapisywanie…" : "Zapisz"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -93,6 +84,7 @@ export default function PositionDetail() {
   const [toDelete, setToDelete] = useState(null); // transaction pending confirmation
   const [deleteError, setDeleteError] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [typeModal, setTypeModal] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -148,9 +140,7 @@ export default function PositionDetail() {
       <div className="pos-head">
         <h1>
           {detail.ticker}
-          <span className={`badge ${inst?.type === "ETF" ? "etf" : ""}`}>
-            {inst?.type === "ETF" ? "ETF" : "Akcja"}
-          </span>
+          <span className={`badge ${typeBadgeClass(inst?.type)}`}>{typeLabel(inst?.type)}</span>
           {inst && (
             <span className="instr-name">
               {inst.name}
@@ -177,6 +167,10 @@ export default function PositionDetail() {
           >
             Sprzedaj
           </button>
+          <RowMenu
+            label="Menu pozycji"
+            items={[{ label: "Zmień typ instrumentu", onClick: () => setTypeModal(true) }]}
+          />
         </div>
       </div>
 
@@ -238,6 +232,7 @@ export default function PositionDetail() {
               )}
               currentPrice={chart.current_price}
               mode={mode}
+              currency={cur}
             />
             <div className="legend">
               <span>
@@ -246,7 +241,11 @@ export default function PositionDetail() {
               </span>
               <span>
                 <span className="dot" style={{ background: "#898781" }} />
-                zamknięte kupno / sprzedaż
+                zamknięte kupno
+              </span>
+              <span>
+                <span className="dot diamond" style={{ background: "#898781" }} />
+                sprzedaż
               </span>
               <span>
                 <span className="dot" style={{ background: "#c3c2b7" }} />
@@ -269,7 +268,7 @@ export default function PositionDetail() {
                 <th>Akcje</th>
                 <th>Cena zakupu</th>
                 <th>Wartość dziś</th>
-                <th>P&L pozycji</th>
+                <th>Zysk</th>
                 <th>%</th>
               </tr>
             </thead>
@@ -303,7 +302,7 @@ export default function PositionDetail() {
         Historia transakcji{" "}
         {s.realized_pnl !== 0 && (
           <span className={pnlClass(s.realized_pnl)}>
-            (zrealizowany P&L: {fmtMoney(s.realized_pnl, cur, { sign: true })})
+            (zrealizowany zysk: {fmtMoney(s.realized_pnl, cur, { sign: true })})
           </span>
         )}
       </h2>
@@ -316,7 +315,7 @@ export default function PositionDetail() {
               <th>Akcje</th>
               <th>Cena</th>
               <th>Prowizja</th>
-              <th>Zrealizowany P&L</th>
+              <th>Zrealizowany zysk</th>
               <th>Notatka</th>
               <th aria-label="Akcje wiersza"></th>
             </tr>
@@ -339,11 +338,18 @@ export default function PositionDetail() {
                   </td>
                   <td>
                     <RowMenu
-                      onEdit={() => openTransaction({ edit: t })}
-                      onDelete={() => {
-                        setDeleteError(null);
-                        setToDelete(t);
-                      }}
+                      label="Menu transakcji"
+                      items={[
+                        { label: "Edytuj", onClick: () => openTransaction({ edit: t }) },
+                        {
+                          label: "Usuń",
+                          danger: true,
+                          onClick: () => {
+                            setDeleteError(null);
+                            setToDelete(t);
+                          },
+                        },
+                      ]}
                     />
                   </td>
                 </tr>
@@ -352,6 +358,18 @@ export default function PositionDetail() {
           </tbody>
         </table>
       </div>
+
+      {typeModal && (
+        <InstrumentTypeModal
+          ticker={detail.ticker}
+          current={inst?.type}
+          onClose={() => setTypeModal(false)}
+          onSaved={() => {
+            setTypeModal(false);
+            refresh();
+          }}
+        />
+      )}
 
       {toDelete && (
         <ConfirmModal

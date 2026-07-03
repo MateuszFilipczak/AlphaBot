@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { addDeposit, addWithdrawal } from "../api.js";
+import { addDeposit, addWithdrawal, updateDeposit } from "../api.js";
+import { fmtDate } from "../format.js";
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 // One modal for both cash-flow directions: mode = "deposit" | "withdraw".
-// Withdrawals additionally take an optional note; the server rejects a
-// withdrawal larger than the available cash (its message lands in `error`).
-export default function DepositModal({ portfolio, mode = "deposit", onClose, onSaved }) {
-  const withdraw = mode === "withdraw";
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(today());
-  const [note, setNote] = useState("");
+// Pass `edit` (an existing deposits row) to edit amount/date/note via PUT —
+// the row's type stays fixed. Server-side validation errors (withdrawal over
+// balance, edit breaking cash coverage) land in `error`.
+export default function DepositModal({ portfolio, mode = "deposit", edit = null, onClose, onSaved }) {
+  const withdraw = edit ? edit.type === "WITHDRAWAL" : mode === "withdraw";
+  const [amount, setAmount] = useState(edit ? String(edit.amount) : "");
+  const [date, setDate] = useState(edit ? fmtDate(edit.date) : today());
+  const [note, setNote] = useState(edit?.note ?? "");
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -24,7 +26,9 @@ export default function DepositModal({ portfolio, mode = "deposit", onClose, onS
     setSaving(true);
     setError(null);
     try {
-      if (withdraw) {
+      if (edit) {
+        await updateDeposit(edit.id, { amount: value, date, note: note.trim() || null });
+      } else if (withdraw) {
         await addWithdrawal(portfolio.id, { amount: value, date, note: note.trim() || null });
       } else {
         await addDeposit(portfolio.id, { amount: value, date });
@@ -40,7 +44,10 @@ export default function DepositModal({ portfolio, mode = "deposit", onClose, onS
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit}>
         <h3>
-          {withdraw ? "Wypłata" : "Wpłata"} — portfel {portfolio.name} ({portfolio.currency})
+          {edit
+            ? `Edytuj ${withdraw ? "wypłatę" : "wpłatę"}`
+            : withdraw ? "Wypłata" : "Wpłata"}
+          {" — portfel "}{portfolio.name} ({portfolio.currency})
         </h3>
         <div className="field-row">
           <div className="field">
@@ -59,7 +66,7 @@ export default function DepositModal({ portfolio, mode = "deposit", onClose, onS
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         </div>
-        {withdraw && (
+        {(withdraw || edit) && (
           <div className="field">
             <label>Notatka (opcjonalna)</label>
             <input value={note} onChange={(e) => setNote(e.target.value)} />
@@ -70,8 +77,8 @@ export default function DepositModal({ portfolio, mode = "deposit", onClose, onS
           <button type="button" className="btn" onClick={onClose}>
             Anuluj
           </button>
-          <button type="submit" className={`btn ${withdraw ? "danger" : "primary"}`} disabled={saving}>
-            {saving ? "Zapisywanie…" : withdraw ? "Zapisz wypłatę" : "Zapisz wpłatę"}
+          <button type="submit" className={`btn ${withdraw && !edit ? "danger" : "primary"}`} disabled={saving}>
+            {saving ? "Zapisywanie…" : edit ? "Zapisz zmiany" : withdraw ? "Zapisz wypłatę" : "Zapisz wpłatę"}
           </button>
         </div>
       </form>

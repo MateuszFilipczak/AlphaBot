@@ -89,6 +89,24 @@ def get_current_price(ticker: str) -> float | None:
     return None
 
 
+def get_close_series(ticker: str, start: str) -> dict[str, float] | None:
+    """Sparse {iso_date: close} from `start` (ISO day) to today, one batch
+    request per ticker — feeds the portfolio-value reconstruction. Fails soft."""
+    try:
+        df = yf.Ticker(ticker).history(start=start, interval="1d")
+        if df is None or df.empty or "Close" not in df:
+            return None
+        out = {}
+        for idx, value in df["Close"].items():
+            v = safe_float(value)
+            if v is not None:
+                out[idx.strftime("%Y-%m-%d")] = v
+        return out or None
+    except Exception as exc:
+        logger.warning("get_close_series(%s) failed: %s", ticker, exc)
+        return None
+
+
 def get_instrument_info(ticker: str) -> dict | None:
     """Instrument metadata for the web app's `instruments` cache: name,
     quote type (EQUITY/ETF/...), exchange and trading currency. Fails soft."""

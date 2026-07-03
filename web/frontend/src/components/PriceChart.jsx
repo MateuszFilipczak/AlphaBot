@@ -4,9 +4,8 @@ import {
   LineSeries,
   LineStyle,
   createChart,
-  createSeriesMarkers,
 } from "lightweight-charts";
-import { fmtShares } from "../format.js";
+import { fmtMoney, fmtShares } from "../format.js";
 
 // Palette (dark) — mirrors styles.css custom properties.
 const C = {
@@ -20,17 +19,20 @@ const C = {
   down: "#d03b3b",
 };
 
-// The backend snaps marker times to existing candles (weekend transaction →
-// Friday/Monday); this is just a safety filter so a stray time can never
-// reach lightweight-charts, which silently drops markers at unknown times.
+// The backend snaps marker times to existing candles; this is just a safety
+// filter so a stray time can never produce an unanchored dot.
 function onCandles(markers, candles) {
   const times = new Set(candles.map((c) => c.time));
   return markers.filter((m) => times.has(m.time));
 }
 
-export default function PriceChart({ candles, markers, currentPrice, mode }) {
+// Transaction markers are HTML overlay dots (not lightweight-charts native
+// markers): native markers can't have outlines, shadows or hover effects.
+// Dots are re-positioned via chart coordinate APIs on every pan/zoom/resize.
+export default function PriceChart({ candles, markers, currentPrice, mode, currency = "USD" }) {
   const boxRef = useRef(null);
-  const [tooltip, setTooltip] = useState(null);
+  const [dots, setDots] = useState([]); // [{x, y, marker}]
+  const [tooltip, setTooltip] = useState(null); // {x, y, marker}
 
   useEffect(() => {
     const el = boxRef.current;
@@ -89,59 +91,82 @@ export default function PriceChart({ candles, markers, currentPrice, mode }) {
       });
     }
 
-    // transaction markers: green = open buy lots, gray = closed buys + sells
     const visible = onCandles(markers ?? [], candles);
-    const markersByTime = new Map();
-    for (const m of visible) {
-      if (!markersByTime.has(m.time)) markersByTime.set(m.time, []);
-      markersByTime.get(m.time).push(m);
-    }
-    createSeriesMarkers(
-      series,
-      visible.map((m) => ({
-        time: m.time,
-        position: m.type === "BUY" ? "belowBar" : "aboveBar",
-        color: m.status === "open" ? C.up : C.muted,
-        shape: "circle",
-        size: 2,
-      }))
-    );
+    const candleByTime = new Map(candles.map((c) => [c.time, c]));
 
-    // marker tooltip: date, shares, price of every transaction on that candle
-    const onMove = (param) => {
-      if (!param.time || !param.point || !markersByTime.has(param.time)) {
-        setTooltip(null);
-        return;
+    const updateDots = () => {
+      const ts = chart.timeScale();
+      const stack = new Map(); // "time|type" → how many dots already placed
+      const next = [];
+      for (const m of visible) {
+        const x = ts.timeToCoordinate(m.time);
+        if (x === null) continue;
+        const candle = candleByTime.get(m.time);
+        const anchor =
+          mode === "candles" ? (m.type === "BUY" ? candle.low : candle.high) : candle.close;
+        const y = series.priceToCoordinate(anchor);
+        if (y === null) continue;
+        // same-day same-direction transactions stack outward instead of overlapping
+        const key = `${m.time}|${m.type}`;
+        const n = stack.get(key) ?? 0;
+        stack.set(key, n + 1);
+        const offset = 14 + n * 14;
+        next.push({ x, y: m.type === "BUY" ? y + offset : y - offset, marker: m });
       }
-      setTooltip({
-        x: Math.min(param.point.x + 12, el.clientWidth - 170),
-        y: Math.max(param.point.y - 10, 6),
-        items: markersByTime.get(param.time),
-      });
+      setDots(next);
     };
-    chart.subscribeCrosshairMove(onMove);
+
     chart.timeScale().fitContent();
+    updateDots();
+    const raf = requestAnimationFrame(updateDots); // after first layout pass
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateDots);
+    const ro = new ResizeObserver(updateDots);
+    ro.observe(el);
 
     return () => {
-      chart.unsubscribeCrosshairMove(onMove);
+      cancelAnimationFrame(raf);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateDots);
+      ro.disconnect();
       chart.remove();
+      setDots([]);
       setTooltip(null);
     };
   }, [candles, markers, currentPrice, mode]);
 
+  const dotClass = (m) =>
+    m.type === "SELL" ? "dot-sell" : m.status === "open" ? "dot-open" : "dot-closed";
+
   return (
     <div className="chart-box" ref={boxRef}>
+      {dots.map((d, i) => (
+        <div
+          key={i}
+          className={`txn-dot ${dotClass(d.marker)}`}
+          style={{ left: d.x, top: d.y }}
+          onMouseEnter={() => setTooltip(d)}
+          onMouseLeave={() => setTooltip(null)}
+        />
+      ))}
       {tooltip && (
-        <div className="chart-tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
-          {tooltip.items.map((m, i) => (
-            <div key={i}>
-              <span className={m.type === "BUY" ? "pnl-up" : ""}>
-                {m.type === "BUY" ? "Kupno" : "Sprzedaż"}
-              </span>{" "}
-              <span className="t-muted">{m.date}</span> · {fmtShares(m.shares)} szt. @{" "}
-              {m.price}
-            </div>
-          ))}
+        <div
+          className="chart-tooltip"
+          style={{
+            left: Math.max(4, Math.min(tooltip.x - 80, (boxRef.current?.clientWidth ?? 320) - 176)),
+            top: Math.max(4, tooltip.y - 78),
+          }}
+        >
+          <div>
+            <b className={tooltip.marker.type === "BUY" ? "pnl-up" : ""}>
+              {tooltip.marker.type === "BUY" ? "Kupno" : "Sprzedaż"}
+            </b>{" "}
+            <span className="t-muted">{tooltip.marker.date}</span>
+          </div>
+          <div>
+            {fmtShares(tooltip.marker.shares)} × {fmtMoney(tooltip.marker.price, currency)}
+          </div>
+          <div className="t-muted">
+            Wartość: {fmtMoney(tooltip.marker.shares * tooltip.marker.price, currency)}
+          </div>
         </div>
       )}
     </div>

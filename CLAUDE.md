@@ -82,7 +82,32 @@ covering buys at any point in the timeline. Delete is a hard delete (mis-entered
 **Cash flows:** the `deposits` table holds both directions — `type` DEPOSIT/WITHDRAWAL with amounts
 always positive (explicit intent over signed amounts; the sign lives only in
 `db.get_total_deposited()`, which returns net contributed capital). Withdrawals are validated
-against the current cash balance (web `POST /withdrawals` and CLI `withdraw` alike).
+against the current cash balance (web `POST /withdrawals` and CLI `withdraw` alike). Deposit rows
+are editable/deletable (PUT/DELETE `/api/deposits/{id}`) guarded by `_min_running_cash`: the change
+may not push the running cash balance below its current floor at any point in the timeline (inflows
+count before outflows within a day; legacy already-negative histories keep their floor).
+
+**Portfolios are user-managed** (POST/PUT/DELETE `/api/portfolios`; delete only when empty). The
+three starter portfolios seed ONLY into an empty table so deletions stick. `SUPPORTED_CURRENCIES`
+includes GBP — older DBs get the portfolios table rebuilt once in init_db (SQLite can't alter a
+CHECK). The CLI still targets the oldest USD portfolio via `get_usd_portfolio_id()`.
+
+**Portfolio value history** (`GET /api/portfolios/{id}/history`): reconstructed day-by-day by
+`valuation.py` (pure, unit-tested) from the ledger — cash from flows, positions from cumulative
+shares × historical closes (`get_close_series`, one batch per ticker), foreign currencies at
+historical FX-pair series, everything forward-filled over non-trading days. Cached in-memory per
+portfolio; the cache signature hashes every ledger row + today's date, so edits and new days
+invalidate automatically. Tickers with no quote history at all fall back to a step function of
+their own transaction prices.
+
+**Instrument types:** EQUITY/ETF/ETC with manual override (PUT `/api/instrument/{ticker}`) because
+Yahoo frequently mislabels ETCs; the override persists since `_ensure_instrument` only fetches
+missing rows. Frontend maps types to badges in `format.js` (`typeLabel`/`typeBadgeClass`).
+
+**Chart transaction markers are HTML overlay dots** (`.txn-dot` divs positioned via
+`timeToCoordinate`/`priceToCoordinate`, re-laid-out on pan/zoom/resize), NOT native
+lightweight-charts markers — native ones can't do outlines, shadows, hover scaling or rich
+tooltips. Sells are diamonds (rotated squares), buys circles (green = open, gray = closed).
 
 **Chart markers** are snapped server-side to the nearest existing candle (weekend → Friday/Monday,
 post-close → last session) so every marker time is guaranteed to exist in `candles` —

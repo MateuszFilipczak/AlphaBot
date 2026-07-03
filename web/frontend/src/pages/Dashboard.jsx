@@ -1,15 +1,37 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../App.jsx";
-import { getDeposits, getSummary } from "../api.js";
-import { fmtDate, fmtMoney, fmtPct, fmtShares, pnlClass } from "../format.js";
+import { deleteDeposit, getDeposits, getSummary } from "../api.js";
+import { fmtDate, fmtMoney, fmtPct, fmtShares, pnlClass, typeBadgeClass, typeLabel } from "../format.js";
+import PortfolioChart from "../components/PortfolioChart.jsx";
+import DepositModal from "../components/DepositModal.jsx";
+import ConfirmModal from "../components/ConfirmModal.jsx";
+import RowMenu from "../components/RowMenu.jsx";
 
 export default function Dashboard() {
-  const { portfolio, portfolioId, refreshTick } = useApp();
+  const { portfolio, portfolioId, refreshTick, refresh } = useApp();
   const [summary, setSummary] = useState(null);
   const [deposits, setDeposits] = useState([]);
   const [error, setError] = useState(null);
+  const [editFlow, setEditFlow] = useState(null); // deposits row being edited
+  const [deleteFlow, setDeleteFlow] = useState(null); // deposits row pending delete
+  const [deleteError, setDeleteError] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
+
+  const confirmDeleteFlow = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteDeposit(deleteFlow.id);
+      setDeleteFlow(null);
+      refresh();
+    } catch (err) {
+      setDeleteError(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     if (!portfolioId) return;
@@ -46,7 +68,7 @@ export default function Dashboard() {
           )}
         </div>
         <div className="tile">
-          <div className="label">Total P&L</div>
+          <div className="label">Zysk łączny</div>
           <div className={`value ${pnlClass(pnl)}`}>
             {fmtMoney(pnl, cur, { sign: true })}
           </div>
@@ -67,6 +89,12 @@ export default function Dashboard() {
           ⚠ Brak kursu dla: {summary.fx_unavailable.join(", ")} — kwoty policzone 1:1.
         </div>
       )}
+
+      <PortfolioChart
+        portfolioId={portfolioId}
+        currency={cur}
+        refreshTick={refreshTick}
+      />
 
       <h2>Pozycje</h2>
       {summary.positions.length === 0 ? (
@@ -96,9 +124,7 @@ export default function Dashboard() {
                 >
                   <td className="ticker-cell">
                     {pos.ticker}
-                    <span className={`badge ${pos.type === "ETF" ? "etf" : ""}`}>
-                      {pos.type === "ETF" ? "ETF" : "Akcja"}
-                    </span>
+                    <span className={`badge ${typeBadgeClass(pos.type)}`}>{typeLabel(pos.type)}</span>
                     <span className="instr-name">{pos.name}</span>
                   </td>
                   <td>{fmtShares(pos.shares)}</td>
@@ -142,6 +168,7 @@ export default function Dashboard() {
                 <th>Typ</th>
                 <th>Kwota</th>
                 <th>Notatka</th>
+                <th aria-label="Akcje wiersza"></th>
               </tr>
             </thead>
             <tbody>
@@ -157,6 +184,22 @@ export default function Dashboard() {
                     <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
                       {d.note ?? ""}
                     </td>
+                    <td>
+                      <RowMenu
+                        label="Menu wpisu"
+                        items={[
+                          { label: "Edytuj", onClick: () => setEditFlow(d) },
+                          {
+                            label: "Usuń",
+                            danger: true,
+                            onClick: () => {
+                              setDeleteError(null);
+                              setDeleteFlow(d);
+                            },
+                          },
+                        ]}
+                      />
+                    </td>
                   </tr>
                 );
               })}
@@ -164,6 +207,28 @@ export default function Dashboard() {
           </table>
         )}
       </div>
+
+      {editFlow && (
+        <DepositModal
+          portfolio={portfolio}
+          edit={editFlow}
+          onClose={() => setEditFlow(null)}
+          onSaved={() => {
+            setEditFlow(null);
+            refresh();
+          }}
+        />
+      )}
+      {deleteFlow && (
+        <ConfirmModal
+          title={`Usunąć ${deleteFlow.type === "WITHDRAWAL" ? "wypłatę" : "wpłatę"}?`}
+          body={`${deleteFlow.type === "WITHDRAWAL" ? "Wypłata" : "Wpłata"} ${fmtMoney(deleteFlow.amount, deleteFlow.currency ?? cur)} z dnia ${fmtDate(deleteFlow.date)} zniknie z historii, a saldo zostanie przeliczone.`}
+          error={deleteError}
+          busy={deleting}
+          onConfirm={confirmDeleteFlow}
+          onClose={() => setDeleteFlow(null)}
+        />
+      )}
     </>
   );
 }

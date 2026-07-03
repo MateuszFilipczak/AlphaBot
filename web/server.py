@@ -30,7 +30,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 import db
-from data.yahoo import get_current_price, get_history, get_instrument_info, safe_float
+from data.yahoo import (
+    get_close_series,
+    get_current_price,
+    get_history,
+    get_instrument_info,
+    safe_float,
+)
+from valuation import reconstruct_history
 from engine import (
     OversellError,
     build_positions,
@@ -158,6 +165,27 @@ class WithdrawalIn(BaseModel):
     _date_iso = field_validator("date")(classmethod(lambda cls, v: _normalize_iso_date(v)))
 
 
+class DepositUpdate(BaseModel):
+    amount: float = Field(gt=0)
+    date: str
+    note: str | None = None
+
+    _date_iso = field_validator("date")(classmethod(lambda cls, v: _normalize_iso_date(v)))
+
+
+class PortfolioIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    currency: str = Field(pattern="^(USD|EUR|PLN|GBP)$")
+
+
+class PortfolioRename(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+class InstrumentTypeIn(BaseModel):
+    type: str = Field(pattern="^(EQUITY|ETF|ETC)$")
+
+
 def _current_cash(portfolio) -> float:
     """Portfolio cash right now: net deposits − (buys + fees) + (sells − fees),
     foreign-currency transactions converted at the current rate (1:1 when the
@@ -182,6 +210,36 @@ def _current_cash(portfolio) -> float:
 @app.get("/api/portfolios")
 def list_portfolios():
     return [dict(p) for p in db.get_portfolios()]
+
+
+@app.post("/api/portfolios", status_code=201)
+def create_portfolio(body: PortfolioIn):
+    name = body.name.strip()
+    if any(p["name"] == name for p in db.get_portfolios()):
+        raise HTTPException(status_code=400, detail=f"Portfel „{name}” już istnieje")
+    return {"id": db.add_portfolio(name, body.currency)}
+
+
+@app.put("/api/portfolios/{portfolio_id}")
+def rename_portfolio(portfolio_id: int, body: PortfolioRename):
+    _get_portfolio_or_404(portfolio_id)
+    name = body.name.strip()
+    if any(p["name"] == name and p["id"] != portfolio_id for p in db.get_portfolios()):
+        raise HTTPException(status_code=400, detail=f"Portfel „{name}” już istnieje")
+    db.rename_portfolio(portfolio_id, name)
+    return {"id": portfolio_id}
+
+
+@app.delete("/api/portfolios/{portfolio_id}")
+def remove_portfolio(portfolio_id: int):
+    _get_portfolio_or_404(portfolio_id)
+    if not db.portfolio_is_empty(portfolio_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Portfel ma transakcje lub wpłaty — usuń je najpierw (kasowane są tylko puste portfele)",
+        )
+    db.delete_portfolio(portfolio_id)
+    return {"deleted": portfolio_id}
 
 
 @app.get("/api/portfolios/{portfolio_id}/summary")
@@ -283,6 +341,66 @@ def portfolio_summary(portfolio_id: int):
     }
 
 
+# ---- Portfolio value history (reconstructed, not snapshotted) ----------------
+
+_HISTORY_RANGES = {"1mo": 31, "3mo": 92, "1y": 366, "max": None}
+_history_cache: dict[int, tuple[int, list[dict]]] = {}
+
+
+@app.get("/api/portfolios/{portfolio_id}/history")
+def portfolio_history(portfolio_id: int, range: str = Query("max")):
+    """Day-by-day portfolio value since the first operation, rebuilt from the
+    transaction/deposit ledger with historical closes and FX rates (one batch
+    request per ticker/pair). Cached in memory; the signature covers every
+    ledger row and today's date, so any edit — or a new day — invalidates it."""
+    if range not in _HISTORY_RANGES:
+        raise HTTPException(status_code=400, detail=f"range must be one of {sorted(_HISTORY_RANGES)}")
+    portfolio = _get_portfolio_or_404(portfolio_id)
+    pcur = portfolio["currency"]
+    txns = db.get_transactions(portfolio_id)
+    deps = [dict(d) for d in db.get_deposits(portfolio_id)]
+    if not txns and not deps:
+        return {"currency": pcur, "points": []}
+
+    signature = hash((
+        date_type.today().isoformat(),
+        tuple(sorted((t["id"], t["date"], t["ticker"], t["type"], t["shares"], t["price"],
+                      t.get("fee") or 0, t.get("currency") or "") for t in txns)),
+        tuple(sorted((d["id"], d["date"], d["amount"], d.get("type") or "DEPOSIT") for d in deps)),
+    ))
+    cached = _history_cache.get(portfolio_id)
+    if cached and cached[0] == signature:
+        points = cached[1]
+    else:
+        start = min(x["date"][:10] for x in [*txns, *deps])
+        instruments = db.get_instruments(sorted({t["ticker"] for t in txns}))
+        txns_fx = [
+            {**t, "currency": t.get("currency") or (instruments.get(t["ticker"]) or {}).get("currency")}
+            for t in txns
+        ]
+
+        price_series = {}
+        for ticker in sorted({t["ticker"] for t in txns}):
+            series = get_close_series(ticker, start)
+            if series is None:
+                # no historical quotes at all — anchor on the transaction
+                # prices themselves (step function), better than valuing at 0
+                series = {t["date"][:10]: t["price"] for t in txns if t["ticker"] == ticker}
+            price_series[ticker] = series
+
+        fx_series = {}
+        for currency in sorted({t["currency"] for t in txns_fx if t["currency"] and t["currency"] != pcur}):
+            fx_series[currency] = get_close_series(f"{currency}{pcur}=X", start) or {}
+
+        points = reconstruct_history(deps, txns_fx, price_series, fx_series, pcur)
+        _history_cache[portfolio_id] = (signature, points)
+
+    days = _HISTORY_RANGES[range]
+    if days is not None and len(points) > days:
+        points = points[-days:]
+    return {"currency": pcur, "points": points}
+
+
 # ---- Deposits ---------------------------------------------------------------
 
 @app.get("/api/portfolios/{portfolio_id}/deposits")
@@ -296,6 +414,81 @@ def create_deposit(portfolio_id: int, body: DepositIn):
     _get_portfolio_or_404(portfolio_id)
     deposit_id = db.add_deposit(body.amount, portfolio_id, body.date or date_type.today().isoformat())
     return {"id": deposit_id}
+
+
+def _min_running_cash(portfolio, deposits: list[dict]) -> float:
+    """Lowest cash balance at any point of the portfolio's timeline, replaying
+    deposits/withdrawals and transaction cash flows day by day (inflows before
+    outflows within one day, foreign currencies at the current rate — the same
+    approximation as everywhere else)."""
+    pcur = portfolio["currency"]
+    txns = db.get_transactions(portfolio["id"])
+    instruments = db.get_instruments(sorted({t["ticker"] for t in txns}))
+
+    def rate_for(currency: str | None) -> float:
+        r = _fx_rate(currency or pcur, pcur)
+        return r if r is not None else 1.0
+
+    events = []  # (day, inflow_first_priority, amount)
+    for d in deposits:
+        signed = d["amount"] if d.get("type", "DEPOSIT") == "DEPOSIT" else -d["amount"]
+        events.append((d["date"][:10], 0 if signed >= 0 else 1, signed))
+    for t in txns:
+        currency = t.get("currency") or (instruments.get(t["ticker"]) or {}).get("currency")
+        fee = t.get("fee", 0.0) or 0.0
+        gross = t["shares"] * t["price"]
+        flow = (-(gross + fee) if t["type"] == "BUY" else gross - fee) * rate_for(currency)
+        events.append((t["date"][:10], 0 if flow >= 0 else 1, flow))
+
+    cash = 0.0
+    lowest = 0.0
+    for _, _, amount in sorted(events, key=lambda e: (e[0], e[1])):
+        cash += amount
+        lowest = min(lowest, cash)
+    return lowest
+
+
+def _validate_deposit_change(portfolio, new_rows: list[dict], operation: str):
+    """The edit/delete may not push the running cash balance negative at any
+    point in history. Portfolios that are already negative somewhere (e.g.
+    buys recorded before their deposit) keep their current floor — the change
+    just must not make things worse."""
+    current = [dict(d) for d in db.get_deposits(portfolio["id"])]
+    floor = min(0.0, _min_running_cash(portfolio, current))
+    if _min_running_cash(portfolio, new_rows) < floor - 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nie można {operation}: saldo gotówki byłoby ujemne w historii "
+                   f"(późniejsze zakupy/wypłaty straciłyby pokrycie)",
+        )
+
+
+@app.put("/api/deposits/{deposit_id}")
+def update_deposit(deposit_id: int, body: DepositUpdate):
+    old = db.get_deposit(deposit_id)
+    if old is None:
+        raise HTTPException(status_code=404, detail="Deposit not found")
+    portfolio = db.get_portfolio_by_id(old["portfolio_id"])
+    new_rows = [
+        {**d, "amount": body.amount, "date": body.date, "note": body.note}
+        if d["id"] == deposit_id else dict(d)
+        for d in (dict(r) for r in db.get_deposits(old["portfolio_id"]))
+    ]
+    _validate_deposit_change(portfolio, new_rows, "zapisać zmian")
+    db.update_deposit(deposit_id, body.amount, body.date, body.note)
+    return {"id": deposit_id}
+
+
+@app.delete("/api/deposits/{deposit_id}")
+def remove_deposit(deposit_id: int):
+    old = db.get_deposit(deposit_id)
+    if old is None:
+        raise HTTPException(status_code=404, detail="Deposit not found")
+    portfolio = db.get_portfolio_by_id(old["portfolio_id"])
+    new_rows = [dict(d) for d in db.get_deposits(old["portfolio_id"]) if d["id"] != deposit_id]
+    _validate_deposit_change(portfolio, new_rows, "usunąć wpisu")
+    db.delete_deposit(deposit_id)
+    return {"deleted": deposit_id}
 
 
 @app.post("/api/portfolios/{portfolio_id}/withdrawals", status_code=201)
@@ -411,6 +604,16 @@ def instrument(ticker: str):
     if inst is None:
         raise HTTPException(status_code=404, detail="Instrument metadata unavailable")
     return inst
+
+
+@app.put("/api/instrument/{ticker}")
+def set_instrument_type(ticker: str, body: InstrumentTypeIn):
+    """Manual type override — Yahoo often labels ETCs (commodity trackers)
+    as ETF or EQUITY, so the user can correct it per instrument."""
+    if db.get_instrument(ticker) is None and _ensure_instrument(ticker) is None:
+        raise HTTPException(status_code=404, detail="Instrument metadata unavailable")
+    db.set_instrument_type(ticker, body.type)
+    return db.get_instrument(ticker)
 
 
 # ---- Position detail --------------------------------------------------------

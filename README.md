@@ -72,7 +72,11 @@ python main.py web        # startuje serwer i otwiera http://localhost:8000
 
 **Co potrafi:**
 
-- **Trzy portfele walutowe** (USD / EUR / PLN) z przełącznikiem u góry — wybór trzymany w URL
+- **Dowolne portfele użytkownika** (np. osobne IKE/IKZE) w walutach USD/EUR/PLN/GBP — przełącznik
+  u góry (wybór trzymany w URL), „+ Nowy portfel" tworzy kolejne; pusty portfel można usunąć przez API
+- **Wykres wartości portfela w czasie** na dashboardzie — rekonstrukcja dzień po dniu z historii
+  transakcji i wpłat (ceny historyczne + kursy FX z yfinance, forward-fill przez weekendy), z
+  przerywaną linią wpłaconego kapitału netto — od razu widać kiedy portfel jest nad/pod wpłatami
 - **Dashboard**: kafelki (wpłacono, gotówka, wartość pozycji, total P&L), tabela pozycji z kolorowanym zyskiem, historia wpłat
 - **Szczegóły pozycji** (klik w wiersz tabeli): wykres ceny (linia/świece, zakresy 1M/3M/1R/MAX) z markerami transakcji — zielone kropki to otwarte pozycje, szare to zamknięte kupna i sprzedaże; pod wykresem lista otwartych pozycji z P&L każdego zakupu osobno oraz pełna historia transakcji ze zrealizowanym zyskiem
 - **Transakcje BUY/SELL** z modala: autocomplete tickerów (Yahoo Finance), ułamkowe akcje, prowizje, walidacja "nie sprzedasz więcej niż masz"
@@ -86,9 +90,13 @@ python main.py web        # startuje serwer i otwiera http://localhost:8000
   przybliżenie. Nazwa spółki, giełda i badge Akcja/ETF pobierane są z yfinance przy pierwszej
   transakcji i cache'owane w tabeli `instruments`
 - **Wpłaty i wypłaty** w walucie aktywnego portfela — wypłata nie może przekroczyć dostępnej
-  gotówki; historia pokazuje oba typy (wypłaty na czerwono, z minusem)
-- **Markery transakcji na wykresie** z przełącznikami widoczności Kupno/Sprzedaż; markery są
-  dociągane do najbliższej sesji (transakcja z weekendu → piątek/poniedziałek)
+  gotówki; historia pokazuje oba typy (wypłaty na czerwono, z minusem), a każdy wpis można
+  edytować/usunąć z menu ⋯ (blokada, jeśli operacja zostawiłaby ujemne saldo w historii)
+- **Markery transakcji na wykresie** — zielone kropki (otwarte kupna), szare kropki (zamknięte),
+  szare romby (sprzedaże), z obwódką i tooltipem na hover; przełączniki widoczności
+  Kupno/Sprzedaż; markery dociągane do najbliższej sesji (weekend → piątek/poniedziałek)
+- **Typy instrumentów**: badge Akcja/ETF/ETC przy pozycji; Yahoo często błędnie oznacza ETC,
+  więc typ można nadpisać ręcznie (szczegóły pozycji → ⋯ → „Zmień typ instrumentu")
 - **Odporność na braki danych**: ceny NaN/brakujące z yfinance nigdy nie wywalają API — pozycja bez
   wyceny liczy się do sumy po koszcie zakupu, z adnotacją "cena niedostępna"
 

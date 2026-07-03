@@ -32,15 +32,37 @@ def get_conn():
         conn.close()
 
 
+SUPPORTED_CURRENCIES = ("USD", "EUR", "PLN", "GBP")
+
+
 def init_db():
     with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS portfolios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
-                currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN'))
+                currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN', 'GBP'))
             )
         """)
+
+        # older DBs have a CHECK without GBP — SQLite can't alter constraints,
+        # so rebuild the table once (ids are preserved, FKs stay valid)
+        table_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='portfolios'"
+        ).fetchone()["sql"]
+        if "'GBP'" not in table_sql:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("""
+                CREATE TABLE portfolios_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN', 'GBP'))
+                )
+            """)
+            conn.execute("INSERT INTO portfolios_new (id, name, currency) SELECT id, name, currency FROM portfolios")
+            conn.execute("DROP TABLE portfolios")
+            conn.execute("ALTER TABLE portfolios_new RENAME TO portfolios")
+            conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,12 +137,14 @@ def init_db():
         if "note" not in dep_cols:
             conn.execute("ALTER TABLE deposits ADD COLUMN note TEXT")
 
-        # Seed the three currency portfolios (name == currency by convention).
-        for currency in ("USD", "EUR", "PLN"):
-            conn.execute(
-                "INSERT OR IGNORE INTO portfolios (name, currency) VALUES (?, ?)",
-                (currency, currency),
-            )
+        # Seed the three starter portfolios ONLY on a fresh DB — portfolios are
+        # user-managed now, so a deleted one must not resurrect on next start.
+        if conn.execute("SELECT COUNT(*) AS n FROM portfolios").fetchone()["n"] == 0:
+            for currency in ("USD", "EUR", "PLN"):
+                conn.execute(
+                    "INSERT INTO portfolios (name, currency) VALUES (?, ?)",
+                    (currency, currency),
+                )
 
         _migrate_legacy(conn)
 
@@ -180,7 +204,36 @@ def get_usd_portfolio_id() -> int:
     """The CLI (add/deposit/balance/portfolio) and the scheduler's stop-loss
     monitor operate on the USD portfolio, matching pre-web behavior."""
     with get_conn() as conn:
-        return conn.execute("SELECT id FROM portfolios WHERE currency = 'USD'").fetchone()["id"]
+        return conn.execute("SELECT id FROM portfolios WHERE currency = 'USD' ORDER BY id").fetchone()["id"]
+
+
+def add_portfolio(name: str, currency: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO portfolios (name, currency) VALUES (?, ?)", (name, currency)
+        )
+        return cur.lastrowid
+
+
+def rename_portfolio(portfolio_id: int, name: str):
+    with get_conn() as conn:
+        conn.execute("UPDATE portfolios SET name = ? WHERE id = ?", (name, portfolio_id))
+
+
+def portfolio_is_empty(portfolio_id: int) -> bool:
+    with get_conn() as conn:
+        txns = conn.execute(
+            "SELECT COUNT(*) AS n FROM transactions WHERE portfolio_id = ?", (portfolio_id,)
+        ).fetchone()["n"]
+        deps = conn.execute(
+            "SELECT COUNT(*) AS n FROM deposits WHERE portfolio_id = ?", (portfolio_id,)
+        ).fetchone()["n"]
+        return txns == 0 and deps == 0
+
+
+def delete_portfolio(portfolio_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
 
 
 # ---- Transactions -----------------------------------------------------------
@@ -255,6 +308,16 @@ def upsert_instrument(ticker: str, name: str, type_: str, exchange: str, currenc
         )
 
 
+def set_instrument_type(ticker: str, type_: str):
+    """Manual override of the instrument type (Yahoo often labels ETCs as ETF
+    or EQUITY). Survives cache refreshes because _ensure_instrument only
+    fetches when the row is missing."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE instruments SET type = ? WHERE ticker = ?", (type_, ticker.upper())
+        )
+
+
 def get_instruments(tickers: list[str]) -> dict[str, dict]:
     if not tickers:
         return {}
@@ -315,6 +378,27 @@ def add_deposit(amount: float, portfolio_id: int | None = None, date: str | None
             (amount, date or _now(), portfolio_id, currency, type_, note),
         )
         return cur.lastrowid
+
+
+def get_deposit(deposit_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM deposits WHERE id = ?", (deposit_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_deposit(deposit_id: int, amount: float, date: str, note: str | None):
+    """Edits a cash flow's amount/date/note. The type (DEPOSIT/WITHDRAWAL)
+    is immutable — delete and re-add to change direction."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE deposits SET amount = ?, date = ?, note = ? WHERE id = ?",
+            (amount, date, note, deposit_id),
+        )
+
+
+def delete_deposit(deposit_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM deposits WHERE id = ?", (deposit_id,))
 
 
 def get_deposits(portfolio_id: int | None = None) -> list[sqlite3.Row]:
