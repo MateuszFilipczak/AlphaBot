@@ -7,6 +7,7 @@ import DepositModal from "./components/DepositModal.jsx";
 import PortfolioModal from "./components/PortfolioModal.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
 import RowMenu from "./components/RowMenu.jsx";
+import { ImportButton } from "./components/ImportModal.jsx";
 
 // Fixed top-level currency tabs — always visible. GBP appears only when a
 // GBP portfolio actually exists.
@@ -200,6 +201,7 @@ export default function App() {
           </nav>
           {portfolio && (
             <div className="actions">
+              <ImportButton portfolio={portfolio} onImported={() => setRefreshTick((t) => t + 1)} />
               <button className="btn" onClick={() => setCashModal("deposit")}>
                 + Wpłata
               </button>

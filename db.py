@@ -35,33 +35,64 @@ def get_conn():
 SUPPORTED_CURRENCIES = ("USD", "EUR", "PLN", "GBP")
 
 
+class NoUsdPortfolioError(RuntimeError):
+    """The USD portfolio the CLI/scheduler target does not exist (portfolios
+    are user-deletable in the web app)."""
+
+
+def _has_composite_name_unique(conn: sqlite3.Connection) -> bool:
+    """True if portfolios already enforces UNIQUE (name, currency). Probes the
+    actual index (not the DDL text in sqlite_master) so a formatting-only edit
+    to the CREATE statement can't retrigger the rebuild on every start."""
+    for idx in conn.execute("PRAGMA index_list('portfolios')"):
+        if idx["unique"]:
+            cols = [c["name"] for c in conn.execute(f"PRAGMA index_info('{idx['name']}')")]
+            if cols == ["name", "currency"]:
+                return True
+    return False
+
+
 def init_db():
     with get_conn() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS portfolios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN', 'GBP'))
+                name TEXT NOT NULL,
+                currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN', 'GBP')),
+                UNIQUE (name, currency)
             )
         """)
 
-        # older DBs have a CHECK without GBP — SQLite can't alter constraints,
-        # so rebuild the table once (ids are preserved, FKs stay valid)
-        table_sql = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='portfolios'"
-        ).fetchone()["sql"]
-        if "'GBP'" not in table_sql:
+        # older DBs have a CHECK without GBP or a UNIQUE on name alone (names
+        # are only unique per currency now) — SQLite can't alter constraints,
+        # so rebuild the table once (ids are preserved, FKs stay valid). The
+        # missing composite UNIQUE also identifies pre-GBP schemas: GBP entered
+        # the CHECK before this constraint existed.
+        if not _has_composite_name_unique(conn):
+            old_seq = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'portfolios'"
+            ).fetchone()
             conn.execute("PRAGMA foreign_keys = OFF")
             conn.execute("""
                 CREATE TABLE portfolios_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN', 'GBP'))
+                    name TEXT NOT NULL,
+                    currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN', 'GBP')),
+                    UNIQUE (name, currency)
                 )
             """)
             conn.execute("INSERT INTO portfolios_new (id, name, currency) SELECT id, name, currency FROM portfolios")
             conn.execute("DROP TABLE portfolios")
             conn.execute("ALTER TABLE portfolios_new RENAME TO portfolios")
+            # DROP TABLE erased the AUTOINCREMENT high-water mark; restore it so
+            # ids of previously deleted portfolios are never handed out again
+            # (a stale ?p= URL would silently show a different portfolio).
+            if old_seq is not None:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'portfolios'")
+                conn.execute(
+                    "INSERT INTO sqlite_sequence (name, seq) VALUES ('portfolios', ?)",
+                    (old_seq["seq"],),
+                )
             conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
@@ -74,7 +105,8 @@ def init_db():
                 fee REAL NOT NULL DEFAULT 0 CHECK (fee >= 0),
                 date TEXT NOT NULL,
                 note TEXT,
-                currency TEXT
+                currency TEXT,
+                external_id TEXT
             )
         """)
         # `deposits` holds all cash flows in/out of a portfolio. Amounts are
@@ -89,7 +121,8 @@ def init_db():
                 portfolio_id INTEGER REFERENCES portfolios(id),
                 currency TEXT,
                 type TEXT NOT NULL DEFAULT 'DEPOSIT' CHECK (type IN ('DEPOSIT', 'WITHDRAWAL')),
-                note TEXT
+                note TEXT,
+                external_id TEXT
             )
         """)
         conn.execute("""
@@ -128,6 +161,11 @@ def init_db():
         txn_cols = {r["name"] for r in conn.execute("PRAGMA table_info(transactions)")}
         if "currency" not in txn_cols:
             conn.execute("ALTER TABLE transactions ADD COLUMN currency TEXT")
+        # external_id (broker-side operation id, e.g. from an XTB export)
+        # arrived with the import feature — it's what makes re-importing the
+        # same file a no-op instead of a duplication.
+        if "external_id" not in txn_cols:
+            conn.execute("ALTER TABLE transactions ADD COLUMN external_id TEXT")
 
         # deposits.type/note arrived with withdrawals support — add to older DBs
         # (existing rows default to DEPOSIT, which is what they all were).
@@ -136,6 +174,8 @@ def init_db():
             conn.execute("ALTER TABLE deposits ADD COLUMN type TEXT NOT NULL DEFAULT 'DEPOSIT'")
         if "note" not in dep_cols:
             conn.execute("ALTER TABLE deposits ADD COLUMN note TEXT")
+        if "external_id" not in dep_cols:
+            conn.execute("ALTER TABLE deposits ADD COLUMN external_id TEXT")
 
         # Seed the three starter portfolios ONLY on a fresh DB — portfolios are
         # user-managed now, so a deleted one must not resurrect on next start.
@@ -148,6 +188,17 @@ def init_db():
 
         _migrate_legacy(conn)
 
+        # one broker operation may land in a portfolio only once; created
+        # after _migrate_legacy — legacy deposits gain portfolio_id there
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_transactions_external_id
+            ON transactions(portfolio_id, external_id) WHERE external_id IS NOT NULL
+        """)
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_deposits_external_id
+            ON deposits(portfolio_id, external_id) WHERE external_id IS NOT NULL
+        """)
+
 
 def _migrate_legacy(conn: sqlite3.Connection):
     """One-time move of pre-web-app data into the new model:
@@ -157,11 +208,21 @@ def _migrate_legacy(conn: sqlite3.Connection):
     - `deposits` gains portfolio_id/amount/currency columns; legacy amount_usd
       rows are attributed to the USD portfolio.
     """
-    usd_id = conn.execute("SELECT id FROM portfolios WHERE currency = 'USD'").fetchone()["id"]
-
-    # deposits: add the new columns if this DB predates them
     dep_cols = {r["name"] for r in conn.execute("PRAGMA table_info(deposits)")}
-    if "portfolio_id" not in dep_cols:
+    needs_deposit_migration = "portfolio_id" not in dep_cols
+    has_legacy = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'portfolio'"
+    ).fetchone()
+    if not needs_deposit_migration and not has_legacy:
+        return
+
+    # A USD portfolio always exists here: on a legacy DB the portfolios table
+    # was just created and seeded in this same transaction, and once migration
+    # has committed the early return above fires before this point (deleting
+    # portfolios only became possible after migration support shipped).
+    usd_id = conn.execute("SELECT id FROM portfolios WHERE currency = 'USD' ORDER BY id").fetchone()["id"]
+
+    if needs_deposit_migration:
         conn.execute("ALTER TABLE deposits ADD COLUMN portfolio_id INTEGER REFERENCES portfolios(id)")
         conn.execute("ALTER TABLE deposits ADD COLUMN currency TEXT")
         conn.execute("ALTER TABLE deposits RENAME COLUMN amount_usd TO amount")
@@ -171,9 +232,6 @@ def _migrate_legacy(conn: sqlite3.Connection):
         )
 
     # legacy positions table -> BUY transactions in the USD portfolio
-    has_legacy = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'portfolio'"
-    ).fetchone()
     if has_legacy:
         for row in conn.execute("SELECT * FROM portfolio ORDER BY buy_date, id"):
             conn.execute(
@@ -217,7 +275,13 @@ def get_usd_portfolio_id() -> int:
     """The CLI (add/deposit/balance/portfolio) and the scheduler's stop-loss
     monitor operate on the USD portfolio, matching pre-web behavior."""
     with get_conn() as conn:
-        return conn.execute("SELECT id FROM portfolios WHERE currency = 'USD' ORDER BY id").fetchone()["id"]
+        row = conn.execute("SELECT id FROM portfolios WHERE currency = 'USD' ORDER BY id").fetchone()
+        if row is None:
+            raise NoUsdPortfolioError(
+                "No USD portfolio exists (it may have been deleted in the web app). "
+                "Create one there to use the CLI portfolio commands."
+            )
+        return row["id"]
 
 
 def add_portfolio(name: str, currency: str) -> int:
@@ -267,12 +331,13 @@ def delete_portfolio_cascade(portfolio_id: int) -> tuple[int, int]:
 
 def add_transaction(portfolio_id: int, ticker: str, type_: str, shares: float,
                     price: float, fee: float = 0.0, date: str | None = None,
-                    note: str | None = None, currency: str | None = None) -> int:
+                    note: str | None = None, currency: str | None = None,
+                    external_id: str | None = None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO transactions (portfolio_id, ticker, type, shares, price, fee, date, note, currency)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (portfolio_id, ticker.upper(), type_, shares, price, fee, date or _now(), note, currency),
+            """INSERT INTO transactions (portfolio_id, ticker, type, shares, price, fee, date, note, currency, external_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (portfolio_id, ticker.upper(), type_, shares, price, fee, date or _now(), note, currency, external_id),
         )
         return cur.lastrowid
 
@@ -389,7 +454,8 @@ def record_equity_snapshot(total_cost: float, total_value: float, drawdown_pct: 
 # ---- Deposits ---------------------------------------------------------------
 
 def add_deposit(amount: float, portfolio_id: int | None = None, date: str | None = None,
-                type_: str = "DEPOSIT", note: str | None = None) -> int:
+                type_: str = "DEPOSIT", note: str | None = None,
+                external_id: str | None = None) -> int:
     """Records a cash flow (DEPOSIT or WITHDRAWAL, amount always positive) in
     the portfolio's own currency. Defaults to the USD portfolio so the legacy
     CLI (`python main.py deposit 250`) keeps working."""
@@ -400,9 +466,9 @@ def add_deposit(amount: float, portfolio_id: int | None = None, date: str | None
             "SELECT currency FROM portfolios WHERE id = ?", (portfolio_id,)
         ).fetchone()["currency"]
         cur = conn.execute(
-            """INSERT INTO deposits (amount, date, portfolio_id, currency, type, note)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (amount, date or _now(), portfolio_id, currency, type_, note),
+            """INSERT INTO deposits (amount, date, portfolio_id, currency, type, note, external_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (amount, date or _now(), portfolio_id, currency, type_, note, external_id),
         )
         return cur.lastrowid
 
@@ -435,6 +501,21 @@ def get_deposits(portfolio_id: int | None = None) -> list[sqlite3.Row]:
         return conn.execute(
             "SELECT * FROM deposits WHERE portfolio_id = ? ORDER BY date", (portfolio_id,)
         ).fetchall()
+
+
+def get_external_ids(portfolio_id: int) -> set[str]:
+    """Broker-side ids already recorded in this portfolio (transactions and
+    cash flows alike) — the import preview marks these rows as duplicates."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT external_id FROM transactions
+               WHERE portfolio_id = ? AND external_id IS NOT NULL
+               UNION
+               SELECT external_id FROM deposits
+               WHERE portfolio_id = ? AND external_id IS NOT NULL""",
+            (portfolio_id, portfolio_id),
+        ).fetchall()
+        return {r["external_id"] for r in rows}
 
 
 def get_total_deposited(portfolio_id: int | None = None) -> float:

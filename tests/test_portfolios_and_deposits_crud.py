@@ -49,11 +49,50 @@ def test_gbp_portfolio_allowed(client):
     client.delete(f"/api/portfolios/{pid}")
 
 
-def test_duplicate_name_rejected(client):
+def test_duplicate_name_rejected_within_currency(client):
     make_portfolio(client, "Dubel")
     r = client.post("/api/portfolios", json={"name": "Dubel", "currency": "USD"})
     assert r.status_code == 400
     assert "już istnieje" in r.json()["detail"]
+
+
+def test_same_name_allowed_across_currencies(client):
+    make_portfolio(client, "Główny - XTB", "PLN")
+    pid_eur = make_portfolio(client, "Główny - XTB", "EUR")
+    assert any(p["id"] == pid_eur and p["currency"] == "EUR"
+               for p in client.get("/api/portfolios").json())
+
+
+def test_rename_collision_scoped_to_currency(client):
+    make_portfolio(client, "Broker A", "PLN")
+    pid_pln = make_portfolio(client, "Broker B", "PLN")
+    pid_eur = make_portfolio(client, "Broker C", "EUR")
+
+    # rename into a name taken in the SAME currency -> 400
+    r = client.put(f"/api/portfolios/{pid_pln}", json={"name": "Broker A"})
+    assert r.status_code == 400
+    assert "już istnieje" in r.json()["detail"]
+
+    # same name is fine in a different currency
+    r = client.put(f"/api/portfolios/{pid_eur}", json={"name": "Broker A"})
+    assert r.status_code == 200
+
+
+def test_whitespace_only_name_rejected(client):
+    r = client.post("/api/portfolios", json={"name": "   ", "currency": "USD"})
+    assert r.status_code == 400
+    assert "pusta" in r.json()["detail"]
+
+    pid = make_portfolio(client, "Prawdziwy")
+    r = client.put(f"/api/portfolios/{pid}", json={"name": " "})
+    assert r.status_code == 400
+    assert any(p["name"] == "Prawdziwy" for p in client.get("/api/portfolios").json())
+
+
+def test_rename_to_own_name_is_noop_not_conflict(client):
+    pid = make_portfolio(client, "Stała nazwa")
+    r = client.put(f"/api/portfolios/{pid}", json={"name": "Stała nazwa"})
+    assert r.status_code == 200
 
 
 def test_invalid_currency_rejected(client):

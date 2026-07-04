@@ -15,6 +15,7 @@ Conventions:
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 import webbrowser
 from bisect import bisect_left
@@ -24,12 +25,13 @@ from pathlib import Path
 from time import time
 
 import requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 import db
+from importers.xtb import parse_xtb_export
 from data.yahoo import (
     get_close_series,
     get_current_price,
@@ -186,6 +188,25 @@ class InstrumentTypeIn(BaseModel):
     type: str = Field(pattern="^(EQUITY|ETF|ETC)$")
 
 
+class ImportOperationIn(BaseModel):
+    """One row the user accepted on the import preview screen. The ticker may
+    differ from the parser's mapping — the preview lets the user correct it."""
+    kind: str = Field(pattern="^(BUY|SELL|DEPOSIT|TRANSFER)$")
+    ticker: str | None = Field(default=None, max_length=12)
+    date: str
+    shares: float | None = Field(default=None, gt=0)
+    price: float | None = Field(default=None, ge=0)
+    amount: float = Field(gt=0)
+    external_id: str | None = None
+    note: str | None = None
+
+    _date_iso = field_validator("date")(classmethod(lambda cls, v: _normalize_iso_date(v)))
+
+
+class ImportCommitIn(BaseModel):
+    operations: list[ImportOperationIn]
+
+
 def _current_cash(portfolio) -> float:
     """Portfolio cash right now: net deposits − (buys + fees) + (sells − fees),
     foreign-currency transactions converted at the current rate (1:1 when the
@@ -213,21 +234,40 @@ def list_portfolios():
     return db.get_portfolios_with_counts()
 
 
+def _clean_portfolio_name(raw: str) -> str:
+    name = raw.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nazwa portfela nie może być pusta")
+    return name
+
+
+def _duplicate_name_400(name: str, currency: str) -> HTTPException:
+    return HTTPException(
+        status_code=400, detail=f"Portfel „{name}” już istnieje w walucie {currency}"
+    )
+
+
+# Name uniqueness (per currency) is enforced solely by the UNIQUE (name,
+# currency) constraint — no check-then-write pre-scan, so a concurrent
+# duplicate can't slip past into a 500.
+
 @app.post("/api/portfolios", status_code=201)
 def create_portfolio(body: PortfolioIn):
-    name = body.name.strip()
-    if any(p["name"] == name for p in db.get_portfolios()):
-        raise HTTPException(status_code=400, detail=f"Portfel „{name}” już istnieje")
-    return {"id": db.add_portfolio(name, body.currency)}
+    name = _clean_portfolio_name(body.name)
+    try:
+        return {"id": db.add_portfolio(name, body.currency)}
+    except sqlite3.IntegrityError:
+        raise _duplicate_name_400(name, body.currency)
 
 
 @app.put("/api/portfolios/{portfolio_id}")
 def rename_portfolio(portfolio_id: int, body: PortfolioRename):
-    _get_portfolio_or_404(portfolio_id)
-    name = body.name.strip()
-    if any(p["name"] == name and p["id"] != portfolio_id for p in db.get_portfolios()):
-        raise HTTPException(status_code=400, detail=f"Portfel „{name}” już istnieje")
-    db.rename_portfolio(portfolio_id, name)
+    portfolio = _get_portfolio_or_404(portfolio_id)
+    name = _clean_portfolio_name(body.name)
+    try:
+        db.rename_portfolio(portfolio_id, name)
+    except sqlite3.IntegrityError:
+        raise _duplicate_name_400(name, portfolio["currency"])
     return {"id": portfolio_id}
 
 
@@ -622,6 +662,98 @@ def set_instrument_type(ticker: str, body: InstrumentTypeIn):
         raise HTTPException(status_code=404, detail="Instrument metadata unavailable")
     db.set_instrument_type(ticker, body.type)
     return db.get_instrument(ticker)
+
+
+# ---- Import (XTB) -----------------------------------------------------------
+
+_IMPORT_MAX_BYTES = 10 * 1024 * 1024
+
+
+@app.post("/api/portfolios/{portfolio_id}/import/xtb")
+async def preview_xtb_import(portfolio_id: int, file: UploadFile = File(...)):
+    """Parse an XTB xlsx export and return the operations for the preview
+    screen — nothing is written here. Each operation carries `already_exists`
+    (its XTB id is in this portfolio) and `ticker_verified` (Yahoo knows the
+    mapped ticker; false → the UI offers a manual correction field)."""
+    _get_portfolio_or_404(portfolio_id)
+    content = await file.read()
+    if len(content) > _IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Plik jest za duży (limit 10 MB)")
+    try:
+        parsed = parse_xtb_export(content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    existing = db.get_external_ids(portfolio_id)
+    instruments = {
+        ticker: _ensure_instrument(ticker)  # fail-soft: None → unverified
+        for ticker in sorted({op["ticker"] for op in parsed["operations"] if op["ticker"]})
+    }
+    for op in parsed["operations"]:
+        op["already_exists"] = op["external_id"] is not None and op["external_id"] in existing
+        inst = instruments.get(op["ticker"]) if op["ticker"] else None
+        op["ticker_verified"] = (inst is not None) if op["ticker"] else None
+        op["instrument_currency"] = (inst or {}).get("currency")
+    return {"operations": parsed["operations"], "warnings": parsed["warnings"]}
+
+
+@app.post("/api/portfolios/{portfolio_id}/import/xtb/commit", status_code=201)
+def commit_xtb_import(portfolio_id: int, body: ImportCommitIn):
+    """Persist the rows the user kept selected. Duplicates (external_id already
+    in the portfolio) are skipped, the whole batch is FIFO-validated per ticker
+    BEFORE any write, and imported prices keep the file's values in the
+    portfolio's currency — XTB charges the account currency even for foreign
+    listings (incl. GBp-quoted LSE instruments), so no rescaling ever."""
+    portfolio = _get_portfolio_or_404(portfolio_id)
+    existing = db.get_external_ids(portfolio_id)
+
+    to_import: list[ImportOperationIn] = []
+    skipped = 0
+    seen: set[str] = set()
+    for op in body.operations:
+        if op.external_id and (op.external_id in existing or op.external_id in seen):
+            skipped += 1
+            continue
+        if op.kind in ("BUY", "SELL"):
+            if not (op.ticker or "").strip() or op.shares is None or op.price is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Operacja {op.kind} (ID {op.external_id}) wymaga tickera, ilości i ceny",
+                )
+        if op.external_id:
+            seen.add(op.external_id)
+        to_import.append(op)
+
+    # every sell must be covered at its point in the merged timeline — check
+    # per ticker before writing anything, so a rejected import writes nothing
+    txn_ops = [op for op in to_import if op.kind in ("BUY", "SELL")]
+    for ticker in sorted({op.ticker.upper().strip() for op in txn_ops}):
+        candidates = [
+            {"id": None, "ticker": ticker, "type": op.kind, "shares": op.shares,
+             "price": op.price, "fee": 0.0, "date": op.date, "note": op.note}
+            for op in txn_ops if op.ticker.upper().strip() == ticker
+        ]
+        try:
+            replay_fifo(db.get_transactions(portfolio_id, ticker) + candidates)
+        except OversellError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Import odrzucony: sprzedaż bez pokrycia dla {ticker} ({exc})",
+            )
+
+    imported = 0
+    for op in to_import:
+        if op.kind in ("BUY", "SELL"):
+            db.add_transaction(
+                portfolio_id, op.ticker.upper().strip(), op.kind, op.shares, op.price,
+                0.0, op.date, op.note, currency=portfolio["currency"],
+                external_id=op.external_id,
+            )
+        else:  # DEPOSIT / TRANSFER — both are cash inflows
+            db.add_deposit(op.amount, portfolio_id, op.date, note=op.note,
+                           external_id=op.external_id)
+        imported += 1
+    return {"imported": imported, "skipped_duplicates": skipped}
 
 
 # ---- Position detail --------------------------------------------------------

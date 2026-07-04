@@ -46,3 +46,10 @@ export const getPosition = (pid, ticker) => request(`/api/positions/${pid}/${tic
 export const getChart = (ticker, range, pid) =>
   request(`/api/chart/${ticker}?range=${range}&interval=1d${pid ? `&portfolio_id=${pid}` : ""}`);
 export const searchTickers = (q) => request(`/api/search?q=${encodeURIComponent(q)}`);
+export const importXtbPreview = (pid, file) => {
+  const form = new FormData(); // browser sets the multipart Content-Type itself
+  form.append("file", file);
+  return request(`/api/portfolios/${pid}/import/xtb`, { method: "POST", body: form });
+};
+export const commitXtbImport = (pid, operations) =>
+  post(`/api/portfolios/${pid}/import/xtb/commit`, { operations });

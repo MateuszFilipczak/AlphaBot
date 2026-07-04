@@ -218,6 +218,25 @@ h2 { font-size: 15px; color: var(--ink-2); font-weight: 600; margin: 28px 0 10px
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .form-error { color: var(--down); font-size: 13px; margin-top: 10px; }
 
+/* ---- Import (XTB) ---- */
+.modal.modal-wide { max-width: 820px; }
+.import-wrap { position: relative; display: inline-block; }
+.import-clickaway { position: fixed; inset: 0; z-index: 150; }
+.import-menu { position: absolute; top: 100%; left: 0; margin-top: 4px; min-width: 160px; z-index: 200; }
+.import-scroll { max-height: 55vh; overflow-y: auto; margin-bottom: 4px; }
+.import-table th, .import-table td { padding: 7px 10px; font-size: 13px; }
+.import-table th:first-child, .import-table td:first-child { width: 30px; text-align: center; }
+.import-table td:nth-child(2), .import-table th:nth-child(2),
+.import-table td:nth-child(3), .import-table th:nth-child(3),
+.import-table td:nth-child(8), .import-table th:nth-child(8) { text-align: left; }
+.import-kind { font-weight: 600; }
+.ticker-fix {
+  width: 110px; background: var(--page); border: 1px solid #c98500;
+  border-radius: 6px; color: var(--ink); padding: 4px 8px; font: inherit; font-size: 13px;
+}
+.badge.warn { color: #c98500; border-color: #c98500; }
+.import-status .badge { margin-left: 0; margin-right: 6px; }
+
 .type-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
 .type-toggle button {
   flex: 1; padding: 8px; border-radius: 10px; font-weight: 700;

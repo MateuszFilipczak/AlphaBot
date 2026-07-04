@@ -64,3 +64,35 @@ def test_migration_is_idempotent(legacy_db):
     assert len(db.get_transactions(usd_id)) == 2
     assert len(db.get_deposits(usd_id)) == 1
     assert len(db.get_portfolios()) == 3
+
+
+def test_rebuild_preserves_autoincrement_sequence(tmp_path, monkeypatch):
+    """The one-time portfolios rebuild (name-only UNIQUE → UNIQUE(name,
+    currency)) must not reset AUTOINCREMENT: ids of deleted portfolios would
+    get reused and stale ?p= URLs would show a different portfolio."""
+    path = tmp_path / "old_unique.db"
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE portfolios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            currency TEXT NOT NULL CHECK (currency IN ('USD', 'EUR', 'PLN'))
+        );
+        INSERT INTO portfolios (name, currency)
+            VALUES ('USD', 'USD'), ('EUR', 'EUR'), ('PLN', 'PLN'),
+                   ('IKE', 'PLN'), ('IKZE', 'PLN');
+        DELETE FROM portfolios WHERE id IN (4, 5);
+    """)
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, "DB_PATH", path)
+
+    db.init_db()  # triggers the rebuild
+    new_id = db.add_portfolio("Nowy", "PLN")
+    assert new_id > 5, f"deleted portfolio id reused: {new_id}"
+
+    ids = [p["id"] for p in db.get_portfolios()]
+    assert sorted(ids) == [1, 2, 3, new_id]  # surviving rows kept their ids
+
+    db.init_db()  # rebuild must not re-fire on the new schema
+    assert len(db.get_portfolios()) == 4

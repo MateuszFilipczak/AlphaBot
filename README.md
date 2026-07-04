@@ -103,6 +103,13 @@ python main.py web        # startuje serwer i otwiera http://localhost:8000
   więc typ można nadpisać ręcznie (szczegóły pozycji → ⋯ → „Zmień typ instrumentu")
 - **Odporność na braki danych**: ceny NaN/brakujące z yfinance nigdy nie wywalają API — pozycja bez
   wyceny liczy się do sumy po koszcie zakupu, z adnotacją "cena niedostępna"
+- **Import z XTB** (przycisk „Importuj" → „XTB (xlsx)"): wczytuje eksport konta z XTB (arkusz
+  Cash Operations) — zakupy/sprzedaże (w tym wolumeny częściowe `0.228/1.228`), wpłaty
+  i przewalutowania PLN→EUR. Przed zapisem pokazuje podgląd z checkboxami: tickery XTB mapowane
+  na Yahoo (`.UK→.L`, `.PL→.WA`, `.US→` bez sufiksu…) z możliwością ręcznej poprawki, kwoty
+  walidowane względem ilość×cena (ostrzeżenie przy rozjeździe). Ponowny import tego samego pliku
+  jest bezpieczny — operacje rozpoznawane po ID z XTB (`external_id`) dostają „już istnieje"
+  i są domyślnie odznaczone
 
 **Model danych:** pozycje nie są przechowywane wprost — wyliczają się z historii transakcji.
 Sprzedaże rozliczane są metodą **FIFO** (najstarsze loty schodzą pierwsze), a zysk zrealizowany

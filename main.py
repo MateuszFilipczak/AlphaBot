@@ -131,7 +131,15 @@ def main():
 
     try:
         args.func(args)
-    except Exception:
+    except Exception as exc:
+        # Known, user-actionable states print their message plainly (like
+        # cmd_withdraw's InsufficientCashError), not a traceback. Looked up via
+        # sys.modules to keep db lazily imported — if db was never imported,
+        # the exception can't be its type.
+        db_mod = sys.modules.get("db")
+        if db_mod is not None and isinstance(exc, db_mod.NoUsdPortfolioError):
+            print(exc)
+            sys.exit(1)
         logger.exception("Command '%s' failed", args.command)
         sys.exit(1)
 
