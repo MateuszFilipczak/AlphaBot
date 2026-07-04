@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 
 import pandas as pd
 import yfinance as yf
@@ -107,16 +108,35 @@ def get_close_series(ticker: str, start: str) -> dict[str, float] | None:
         return None
 
 
+# Commodity trackers (ETCs) are legally companies — e.g. "iShares Physical
+# Metals plc" — so Yahoo's quoteType calls them EQUITY (or ETF); the name is
+# the reliable signal. Matches a standalone "ETC" or "physical <metal>".
+_ETC_NAME_RE = re.compile(
+    r"\betc\b|\bphysical\b.*\b(?:gold|silver|platinum|palladium|metals?)\b", re.IGNORECASE
+)
+
+
+def derive_instrument_type(quote_type: str | None, *names: str | None) -> str:
+    """Yahoo's quoteType corrected for ETCs by inspecting the instrument
+    names. Pure helper (unit-tested); manual overrides via the web app still
+    win, since cached instruments are never re-fetched."""
+    if _ETC_NAME_RE.search(" ".join(n for n in names if n)):
+        return "ETC"
+    return quote_type or "EQUITY"
+
+
 def get_instrument_info(ticker: str) -> dict | None:
     """Instrument metadata for the web app's `instruments` cache: name,
-    quote type (EQUITY/ETF/...), exchange and trading currency. Fails soft."""
+    quote type (EQUITY/ETF/ETC/...), exchange and trading currency. Fails soft."""
     info = get_info(ticker)
     if info is None:
         return None
     return {
         "ticker": ticker.upper(),
         "name": info.get("shortName") or info.get("longName") or ticker.upper(),
-        "type": info.get("quoteType") or "EQUITY",
+        "type": derive_instrument_type(
+            info.get("quoteType"), info.get("shortName"), info.get("longName")
+        ),
         "exchange": info.get("fullExchangeName") or info.get("exchange") or "",
         "currency": info.get("currency"),
     }

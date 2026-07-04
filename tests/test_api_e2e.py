@@ -156,3 +156,12 @@ def test_non_iso_date_is_rejected_not_misparsed(client, usd_portfolio):
     assert r.status_code == 201
     detail = client.get(f"/api/positions/{pid}/BADDATE").json()
     assert detail["transactions"][0]["date"] == "2026-07-02"
+
+
+def test_spa_shell_always_revalidates(client):
+    """index.html must carry no-cache — otherwise browsers heuristically cache
+    the SPA shell and a rebuilt frontend only shows up after a hard refresh."""
+    for path in ("/", "/?p=1", "/favicon.svg"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert r.headers["cache-control"] == "no-cache", path

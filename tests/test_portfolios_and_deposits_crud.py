@@ -160,6 +160,26 @@ def test_instrument_type_override_to_etc(client):
     assert client.put("/api/instrument/EGLN.T", json={"type": "FUND"}).status_code == 422
 
 
+def test_derive_instrument_type_etc_heuristic():
+    """Yahoo labels ETCs as EQUITY (they're legally companies, e.g. iShares
+    Physical Metals plc) or ETF — the name is the reliable signal."""
+    from data.yahoo import derive_instrument_type
+
+    assert derive_instrument_type("EQUITY", "ISHARES PHYSICAL METALS PLC ISH") == "ETC"
+    assert derive_instrument_type("ETF", "iShares Physical Gold ETC") == "ETC"
+    assert derive_instrument_type("ETF", "WisdomTree Physical Silver") == "ETC"
+    assert derive_instrument_type("EQUITY", None, "Invesco Physical Gold ETC") == "ETC"
+
+    # no false positives on ordinary names
+    assert derive_instrument_type("EQUITY", "Apple Inc.") == "EQUITY"
+    assert derive_instrument_type("ETF", "Vanguard FTSE All-World U.ETF R") == "ETF"
+    assert derive_instrument_type("EQUITY", "Barrick Gold Corporation") == "EQUITY"
+    assert derive_instrument_type("EQUITY", "Physical Therapy Corp") == "EQUITY"
+    # "ETC" must be a standalone word, not a fragment
+    assert derive_instrument_type("ETF", "GETCO Holdings ETF") == "ETF"
+    assert derive_instrument_type(None, "Unknown Co") == "EQUITY"
+
+
 # ---- Deposit/withdrawal edit & delete --------------------------------------------
 
 @pytest.fixture()

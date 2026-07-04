@@ -107,8 +107,10 @@ invalidate automatically. Tickers with no quote history at all fall back to a st
 their own transaction prices.
 
 **Instrument types:** EQUITY/ETF/ETC with manual override (PUT `/api/instrument/{ticker}`) because
-Yahoo frequently mislabels ETCs; the override persists since `_ensure_instrument` only fetches
-missing rows. Frontend maps types to badges in `format.js` (`typeLabel`/`typeBadgeClass`).
+Yahoo frequently mislabels ETCs — legally they're companies (e.g. "iShares Physical Metals plc"),
+so quoteType says EQUITY/ETF; `data.yahoo.derive_instrument_type` corrects that from the instrument
+name ("ETC" as a word, or "physical <metal>"). The override persists since `_ensure_instrument`
+only fetches missing rows. Frontend maps types to badges in `format.js` (`typeLabel`/`typeBadgeClass`).
 
 **Chart transaction markers are HTML overlay dots** (`.txn-dot` divs positioned via
 `timeToCoordinate`/`priceToCoordinate`, re-laid-out on pan/zoom/resize), NOT native

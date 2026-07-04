@@ -907,11 +907,13 @@ if FRONTEND_DIST.is_dir():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
-        # client-side routing: any non-API path gets index.html
+        # client-side routing: any non-API path gets index.html. no-cache =
+        # always revalidate (ETag → 304), so a rebuilt frontend shows up on
+        # the next load instead of after a manual hard refresh — the JS/CSS
+        # under /assets are content-hashed, only this shell goes stale.
         candidate = FRONTEND_DIST / full_path
-        if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(FRONTEND_DIST / "index.html")
+        target = candidate if full_path and candidate.is_file() else FRONTEND_DIST / "index.html"
+        return FileResponse(target, headers={"Cache-Control": "no-cache"})
 
 
 def run_server(port: int = 8000, open_browser: bool = True):
