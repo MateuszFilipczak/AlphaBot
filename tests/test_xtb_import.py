@@ -413,6 +413,31 @@ def test_preview_flags_probable_manual_duplicates(client, portfolio_id):
     assert other["similar_exists"] is False
 
 
+def test_closed_imported_foreign_position_needs_no_fx_note(client):
+    """A fully-closed foreign position built entirely from imported trades is
+    FX-exact (broker-settled amounts) — the summary must NOT register a
+    current FX rate for it, or the UI shows a bogus '≈ przybliżenie' note."""
+    r = client.post("/api/portfolios", json={"name": "FX note test", "currency": "PLN"})
+    pid = r.json()["id"]
+    try:
+        rows = [
+            ["Stock purchase", "SXRV.DE", "NASDAQ 100", datetime(2026, 3, 2),
+             -247.29, "801", "OPEN BUY 0.0483 @ 1204.4", "My Trades"],
+            ["Stock sell", "SXRV.DE", "NASDAQ 100", datetime(2026, 3, 5),
+             254.47, "802", "CLOSE BUY 0.0483 @ 1236.2", "My Trades"],
+        ]
+        ops = upload(client, pid, build_xtb_xlsx(rows)).json()["operations"]
+        client.post(f"/api/portfolios/{pid}/import/xtb/commit", json={"operations": ops})
+        s = client.get(f"/api/portfolios/{pid}/summary").json()
+        [closed] = s["closed_positions"]
+        assert closed["fx_exact"] is True
+        assert closed["realized_pnl_pc"] == pytest.approx(254.47 - 247.29)
+        assert s["fx_rates"] == {}  # nothing was converted at the current rate
+        assert s["fx_unavailable"] == []
+    finally:
+        client.delete(f"/api/portfolios/{pid}?force=true")
+
+
 def test_commit_foreign_instrument_keeps_instrument_currency(client):
     """EUR-quoted instrument bought on a PLN account: amount = shares×price×FX,
     so the transaction must be recorded in the instrument's currency (EUR) —

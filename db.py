@@ -404,13 +404,15 @@ def get_transaction(txn_id: int) -> dict | None:
 
 def update_transaction(txn_id: int, ticker: str, type_: str, shares: float,
                        price: float, fee: float, date: str,
-                       note: str | None, currency: str | None):
+                       note: str | None, currency: str | None,
+                       cash_amount: float | None = None):
     with get_conn() as conn:
         conn.execute(
             """UPDATE transactions
-               SET ticker = ?, type = ?, shares = ?, price = ?, fee = ?, date = ?, note = ?, currency = ?
+               SET ticker = ?, type = ?, shares = ?, price = ?, fee = ?, date = ?,
+                   note = ?, currency = ?, cash_amount = ?
                WHERE id = ?""",
-            (ticker.upper(), type_, shares, price, fee, date, note, currency, txn_id),
+            (ticker.upper(), type_, shares, price, fee, date, note, currency, cash_amount, txn_id),
         )
 
 

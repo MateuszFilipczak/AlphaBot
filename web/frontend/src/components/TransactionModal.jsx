@@ -1,9 +1,17 @@
 import { useEffect, useState } from "react";
 import { addTransaction, getInstrument, getPosition, updateTransaction } from "../api.js";
-import { fmtShares } from "../format.js";
+import { fmtMoney, fmtShares } from "../format.js";
 import TickerSearch from "./TickerSearch.jsx";
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+// implied FX rate of an existing transaction that stored an exact settled
+// amount (import or a prior manual rate), so edit mode can pre-fill the field
+function impliedRate(t) {
+  if (t?.cash_amount == null || !(t.price > 0)) return "";
+  const net = t.shares * t.price + (t.type === "BUY" ? (t.fee || 0) : -(t.fee || 0));
+  return net > 0 ? String(+(t.cash_amount / net).toFixed(6)) : "";
+}
 
 export default function TransactionModal({ portfolio, defaults, onClose, onSaved }) {
   const editing = defaults.edit ?? null; // existing transaction → edit mode (PUT)
@@ -12,6 +20,7 @@ export default function TransactionModal({ portfolio, defaults, onClose, onSaved
   const [shares, setShares] = useState(editing ? String(editing.shares) : "");
   const [price, setPrice] = useState(editing ? String(editing.price) : "");
   const [fee, setFee] = useState(editing ? String(editing.fee ?? 0) : "0");
+  const [fxRate, setFxRate] = useState(editing ? impliedRate(editing) : "");
   const [date, setDate] = useState(editing?.date?.slice(0, 10) ?? today());
   const [note, setNote] = useState(editing?.note ?? "");
   const [owned, setOwned] = useState(null); // shares held, for SELL validation
@@ -57,6 +66,15 @@ export default function TransactionModal({ portfolio, defaults, onClose, onSaved
   const sharesNum = parseFloat(shares);
   const oversell = !editing && type === "SELL" && owned !== null && sharesNum > owned + 1e-9;
 
+  // portfolio-currency amount implied by the entered FX rate (live preview)
+  const rateNum = parseFloat(fxRate);
+  const priceN = parseFloat(price);
+  const feeN = parseFloat(fee) || 0;
+  const settledPc =
+    currencyMismatch && rateNum > 0 && sharesNum > 0 && priceN >= 0
+      ? (sharesNum * priceN + (type === "BUY" ? feeN : -feeN)) * rateNum
+      : null;
+
   const submit = async (e) => {
     e.preventDefault();
     if (!ticker.trim()) return setError("Podaj ticker.");
@@ -75,6 +93,9 @@ export default function TransactionModal({ portfolio, defaults, onClose, onSaved
       fee: parseFloat(fee) || 0,
       date,
       note: note.trim() || null,
+      // exact settlement only for foreign trades with a rate; server ignores
+      // it when currencies match
+      fx_rate: currencyMismatch && rateNum > 0 ? rateNum : null,
     };
     try {
       if (editing) await updateTransaction(editing.id, body);
@@ -126,10 +147,36 @@ export default function TransactionModal({ portfolio, defaults, onClose, onSaved
           {currencyMismatch && (
             <div className="hint" style={{ color: "#c98500" }}>
               ⚠ {ticker.trim().toUpperCase()} notowane w {currencyMismatch}, portfel jest w{" "}
-              {portfolio.currency} — sumy będą przeliczane po bieżącym kursie (przybliżenie).
+              {portfolio.currency}. Podaj kurs, aby zapisać dokładną kwotę rozliczenia; bez
+              niego sumy liczone są po bieżącym kursie (przybliżenie).
             </div>
           )}
         </div>
+
+        {currencyMismatch && (
+          <div className="field-row">
+            <div className="field">
+              <label>Kurs {currencyMismatch}→{portfolio.currency} (opcjonalny)</label>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                placeholder={`1 ${currencyMismatch} = ? ${portfolio.currency}`}
+                value={fxRate}
+                onChange={(e) => setFxRate(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label>Kwota rozliczenia ({portfolio.currency})</label>
+              <input
+                readOnly
+                value={settledPc != null ? fmtMoney(settledPc, portfolio.currency) : "—"}
+                tabIndex={-1}
+                style={{ opacity: 0.85 }}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="field-row">
           <div className="field">

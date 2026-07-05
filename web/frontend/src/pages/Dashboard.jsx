@@ -92,7 +92,17 @@ export default function Dashboard() {
 
   return (
     <>
-      <section className="tiles">
+      <div className="pv-headline">
+        <span className="pv-label">Wartość otwartych pozycji</span>
+        <span className="pv-amount">{fmtMoney(summary.positions_value, cur)}</span>
+        {summary.unpriced_tickers.length > 0 && (
+          <span className="pv-sub">
+            część po koszcie (cena niedostępna): {summary.unpriced_tickers.join(", ")}
+          </span>
+        )}
+      </div>
+
+      <section className="tiles tiles-4">
         <div className="tile" title="Wpłaty bankowe + transfery przychodzące (z innych portfeli/subkont)">
           <div className="label">Suma wpłat<span className="info">ⓘ</span></div>
           <div className="value">{fmtMoney(summary.contributed_in, cur)}</div>
@@ -102,17 +112,10 @@ export default function Dashboard() {
           <div className="value">{fmtMoney(summary.contributed_out, cur)}</div>
         </div>
         <div className="tile">
-          <div className="label">Gotówka dostępna</div>
+          <div className="label">Wolne środki</div>
           <div className={`value ${summary.cash < 0 ? "pnl-down" : ""}`}>
             {fmtMoney(summary.cash, cur)}
           </div>
-        </div>
-        <div className="tile">
-          <div className="label">Wartość otwartych pozycji</div>
-          <div className="value">{fmtMoney(summary.positions_value, cur)}</div>
-          {summary.unpriced_tickers.length > 0 && (
-            <div className="sub">po koszcie (cena niedostępna): {summary.unpriced_tickers.join(", ")}</div>
-          )}
         </div>
         <div
           className="tile"

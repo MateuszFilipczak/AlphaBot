@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { LineSeries, LineStyle, createChart } from "lightweight-charts";
+import { BaselineSeries, LineStyle, createChart } from "lightweight-charts";
 import { getHistory } from "../api.js";
 import { fmtMoney, pnlClass } from "../format.js";
 
@@ -10,18 +10,25 @@ const C = {
   muted: "#898781",
   ink2: "#c3c2b7",
   accent: "#3987e5",
+  up: "#0ca30c",
+  down: "#d03b3b",
 };
 
+// portfolio value is reconstructed daily — no intraday; ranges match the stock
+// chart from "1 tydzień" (5 sesji) upward
 const RANGES = [
+  ["5d", "1T"],
   ["1mo", "1M"],
   ["3mo", "3M"],
+  ["6mo", "6M"],
   ["1y", "1R"],
+  ["5y", "5L"],
   ["max", "MAX"],
 ];
 
-// Portfolio value over time (reconstructed day by day on the backend) with a
-// subtle dashed line of net contributed capital — the gap between the two IS
-// the profit, visible at a glance.
+// Portfolio result over time = value − contributed capital, plotted from a
+// zero baseline: green above (in profit), red below (under water). The
+// tooltip still surfaces the absolute value and contributed capital.
 export default function PortfolioChart({ portfolioId, currency, refreshTick }) {
   const boxRef = useRef(null);
   const [range, setRange] = useState("max");
@@ -52,23 +59,26 @@ export default function PortfolioChart({ portfolioId, currency, refreshTick }) {
       },
     });
 
-    const valueSeries = chart.addSeries(LineSeries, {
-      color: C.accent,
+    const profitSeries = chart.addSeries(BaselineSeries, {
+      baseValue: { type: "price", price: 0 },
+      topLineColor: C.up,
+      topFillColor1: "rgba(12, 163, 12, 0.30)",
+      topFillColor2: "rgba(12, 163, 12, 0.02)",
+      bottomLineColor: C.down,
+      bottomFillColor1: "rgba(208, 59, 59, 0.02)",
+      bottomFillColor2: "rgba(208, 59, 59, 0.30)",
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: true,
     });
-    valueSeries.setData(points.map((p) => ({ time: p.date, value: p.value })));
-
-    const depositedSeries = chart.addSeries(LineSeries, {
+    profitSeries.setData(points.map((p) => ({ time: p.date, value: p.value - p.deposited })));
+    profitSeries.createPriceLine({
+      price: 0,
       color: C.muted,
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      crosshairMarkerVisible: false,
+      axisLabelVisible: false,
     });
-    depositedSeries.setData(points.map((p) => ({ time: p.date, value: p.deposited })));
 
     const byDate = new Map(points.map((p) => [p.date, p]));
     const onMove = (param) => {
@@ -95,7 +105,7 @@ export default function PortfolioChart({ portfolioId, currency, refreshTick }) {
   return (
     <div className="chart-card" style={{ marginBottom: 24 }}>
       <div className="chart-controls">
-        <span className="chart-title">Wartość portfela</span>
+        <span className="chart-title">Wynik portfela w czasie</span>
         <div className="seg" role="group" aria-label="Zakres historii">
           {RANGES.map(([value, label]) => (
             <button
@@ -129,12 +139,16 @@ export default function PortfolioChart({ portfolioId, currency, refreshTick }) {
       </div>
       <div className="legend">
         <span>
-          <span className="dot" style={{ background: C.accent }} />
-          wartość portfela
+          <span className="dot" style={{ background: C.up }} />
+          zysk (wartość nad wpłatami)
+        </span>
+        <span>
+          <span className="dot" style={{ background: C.down }} />
+          strata (wartość pod wpłatami)
         </span>
         <span>
           <span className="dot" style={{ background: C.muted }} />
-          ‑ ‑ wpłacony kapitał (netto)
+          ‑ ‑ linia zera (= wpłacony kapitał)
         </span>
       </div>
     </div>

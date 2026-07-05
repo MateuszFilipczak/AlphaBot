@@ -148,6 +148,10 @@ class TransactionIn(BaseModel):
     fee: float = Field(default=0.0, ge=0)
     date: str | None = None  # ISO date; defaults to today
     note: str | None = None
+    # instrument→portfolio FX rate for foreign trades (e.g. DKK→EUR), entered
+    # by hand like XTB shows it. Turns the trade into an FX-exact settlement
+    # (stored cash_amount); ignored when currencies match. None → approximate.
+    fx_rate: float | None = Field(default=None, gt=0)
 
     _date_iso = field_validator("date")(classmethod(lambda cls, v: _normalize_iso_date(v)))
 
@@ -397,7 +401,6 @@ def portfolio_summary(portfolio_id: int):
             continue
         inst = db.get_instrument(ticker) or _ensure_instrument(ticker)
         icur = (inst or {}).get("currency") or pcur
-        rate = rate_for(icur)
         cost_sold = sum(s["cost_basis"] for s in state["sales"])
         proceeds = sum(s["proceeds"] for s in state["sales"])
         realized = state["realized_pnl"]
@@ -405,6 +408,10 @@ def portfolio_summary(portfolio_id: int):
         if cash_totals:
             invested_pc, proceeds_pc, realized_pc = cash_totals
         else:
+            # rate fetched LAZILY: only an actually-used current rate may
+            # register in fx_rates — the "≈ approximation" note must not show
+            # up when every figure comes from broker-settled amounts
+            rate = rate_for(icur)
             invested_pc, proceeds_pc, realized_pc = cost_sold * rate, proceeds * rate, realized * rate
         realized_total += realized_pc
         closed_positions.append({
@@ -459,7 +466,9 @@ def portfolio_summary(portfolio_id: int):
 
 # ---- Portfolio value history (reconstructed, not snapshotted) ----------------
 
-_HISTORY_RANGES = {"1mo": 31, "3mo": 92, "1y": 366, "max": None}
+# day counts slice the reconstructed daily series; portfolio value has no
+# intraday granularity, so ranges start at 5 days (5d ≈ "1 tydzień")
+_HISTORY_RANGES = {"5d": 5, "1mo": 31, "3mo": 92, "6mo": 183, "1y": 366, "5y": 1827, "max": None}
 _history_cache: dict[int, tuple[int, list[dict]]] = {}
 
 
@@ -634,11 +643,24 @@ def _txn_currency(ticker: str, portfolio) -> str | None:
     return (inst or {}).get("currency") or portfolio["currency"]
 
 
+def _manual_cash_amount(body: TransactionIn, currency: str, portfolio_currency: str) -> float | None:
+    """Exact portfolio-currency settled amount for a manual foreign trade that
+    supplies an FX rate: (shares×price ± fee) × rate — BUY adds the fee (money
+    out), SELL subtracts it (money in), mirroring how imports store it. None
+    when currencies match or no rate is given (then cash uses the live rate)."""
+    if body.fx_rate is None or currency == portfolio_currency:
+        return None
+    gross = body.shares * body.price
+    net = gross + body.fee if body.type == "BUY" else gross - body.fee
+    return net * body.fx_rate
+
+
 @app.post("/api/portfolios/{portfolio_id}/transactions", status_code=201)
 def create_transaction(portfolio_id: int, body: TransactionIn):
     portfolio = _get_portfolio_or_404(portfolio_id)
     ticker = body.ticker.upper().strip()
     txn_date = body.date or date_type.today().isoformat()
+    currency = _txn_currency(ticker, portfolio)
 
     if body.type == "SELL":
         existing = db.get_transactions(portfolio_id, ticker)
@@ -653,7 +675,8 @@ def create_transaction(portfolio_id: int, body: TransactionIn):
 
     txn_id = db.add_transaction(
         portfolio_id, ticker, body.type, body.shares, body.price,
-        body.fee, txn_date, body.note, currency=_txn_currency(ticker, portfolio),
+        body.fee, txn_date, body.note, currency=currency,
+        cash_amount=_manual_cash_amount(body, currency, portfolio["currency"]),
     )
     return {"id": txn_id}
 
@@ -695,9 +718,11 @@ def update_transaction(txn_id: int, body: TransactionIn):
         new_txns = db.get_transactions(old["portfolio_id"], new_ticker) + [updated]
         _replay_or_400(new_txns, "zapisać zmian")
 
+    currency = _txn_currency(new_ticker, portfolio)
     db.update_transaction(
         txn_id, new_ticker, body.type, body.shares, body.price, body.fee,
-        txn_date, body.note, currency=_txn_currency(new_ticker, portfolio),
+        txn_date, body.note, currency=currency,
+        cash_amount=_manual_cash_amount(body, currency, portfolio["currency"]),
     )
     return {"id": txn_id}
 
