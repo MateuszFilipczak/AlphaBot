@@ -44,7 +44,8 @@ export const deleteTransaction = (id) => request(`/api/transactions/${id}`, { me
 export const getInstrument = (ticker) => request(`/api/instrument/${ticker}`);
 export const getPosition = (pid, ticker) => request(`/api/positions/${pid}/${ticker}`);
 export const getChart = (ticker, range, pid) =>
-  request(`/api/chart/${ticker}?range=${range}&interval=1d${pid ? `&portfolio_id=${pid}` : ""}`);
+  // no explicit interval — the server picks one per range (15m for 1d, 1h for 5d, else 1d)
+  request(`/api/chart/${ticker}?range=${range}${pid ? `&portfolio_id=${pid}` : ""}`);
 export const searchTickers = (q) => request(`/api/search?q=${encodeURIComponent(q)}`);
 export const importXtbPreview = (pid, file) => {
   const form = new FormData(); // browser sets the multipart Content-Type itself

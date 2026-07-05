@@ -218,3 +218,46 @@ def test_build_positions_groups_by_ticker():
     assert positions["AAPL"]["shares_owned"] == 0
     assert positions["AAPL"]["realized_pnl"] == pytest.approx(100)
     assert positions["MSFT"]["shares_owned"] == 3
+
+
+def test_cash_basis_realized_fifo():
+    """Imported trades carry cash_amount (broker-settled portfolio-currency
+    amounts) — FIFO on those must reproduce the broker's FX-exact P/L."""
+    txns = [
+        # EUR instrument on a PLN account: prices EUR, cash_amount PLN
+        {"id": 1, "ticker": "X", "type": "BUY", "shares": 2, "price": 100.0,
+         "fee": 0, "date": "2026-01-05", "cash_amount": 860.0},   # rate 4.30
+        {"id": 2, "ticker": "X", "type": "BUY", "shares": 1, "price": 110.0,
+         "fee": 0, "date": "2026-01-10", "cash_amount": 451.0},   # rate 4.10
+        # sells 2.5 shares: 2.0 from lot 1 + 0.5 from lot 2
+        {"id": 3, "ticker": "X", "type": "SELL", "shares": 2.5, "price": 120.0,
+         "fee": 0, "date": "2026-02-01", "cash_amount": 1275.0},  # rate 4.25
+    ]
+    state = replay_fifo(txns)
+    [sale] = state["sales"]
+    assert sale["cash_proceeds"] == pytest.approx(1275.0)
+    assert sale["cash_cost"] == pytest.approx(860.0 + 451.0 * 0.5)
+    assert sale["realized_cash"] == pytest.approx(1275.0 - 1085.5)
+    # native FIFO still works alongside
+    assert sale["realized_pnl"] == pytest.approx(2.5 * 120 - (2 * 100 + 0.5 * 110))
+
+
+def test_cash_basis_none_when_any_leg_manual():
+    txns = [
+        {"id": 1, "ticker": "X", "type": "BUY", "shares": 1, "price": 100.0,
+         "fee": 0, "date": "2026-01-05"},  # manual: no cash_amount
+        {"id": 2, "ticker": "X", "type": "SELL", "shares": 1, "price": 120.0,
+         "fee": 0, "date": "2026-02-01", "cash_amount": 510.0},
+    ]
+    [sale] = replay_fifo(txns)["sales"]
+    assert sale["realized_cash"] is None
+    assert sale["cash_cost"] is None
+    # and the reverse: imported buy, manual sell
+    txns2 = [
+        {"id": 1, "ticker": "X", "type": "BUY", "shares": 1, "price": 100.0,
+         "fee": 0, "date": "2026-01-05", "cash_amount": 430.0},
+        {"id": 2, "ticker": "X", "type": "SELL", "shares": 1, "price": 120.0,
+         "fee": 0, "date": "2026-02-01"},
+    ]
+    [sale2] = replay_fifo(txns2)["sales"]
+    assert sale2["realized_cash"] is None

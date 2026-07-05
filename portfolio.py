@@ -10,6 +10,7 @@ from config import MAX_DRAWDOWN_PCT, STOP_LOSS_PCT
 from data.yahoo import get_current_price
 from db import (
     add_deposit,
+    get_cash_flows_total,
     get_total_deposited,
     get_transactions,
     get_usd_portfolio_id,
@@ -80,9 +81,12 @@ def compute_capital_summary(positions: list[dict] | None = None, drawdown: dict 
     if drawdown is None:
         drawdown = compute_drawdown(positions)
 
-    total_deposited = get_total_deposited()
+    usd_id = get_usd_portfolio_id()
+    total_deposited = get_total_deposited(usd_id)
     invested = sum(p["buy_price"] * p["shares"] for p in positions)
-    available = cash_balance(total_deposited, get_transactions(get_usd_portfolio_id()))
+    # cash starts from ALL flows (incl. dividend/interest income), while
+    # total_deposited reports contributed capital only
+    available = cash_balance(get_cash_flows_total(usd_id), get_transactions(usd_id))
 
     pnl_usd = drawdown["total_value"] - drawdown["total_cost"]
     pnl_pct = (pnl_usd / drawdown["total_cost"] * 100) if drawdown["total_cost"] > 0 else 0.0

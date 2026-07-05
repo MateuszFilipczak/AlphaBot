@@ -165,3 +165,41 @@ def test_spa_shell_always_revalidates(client):
         r = client.get(path)
         assert r.status_code == 200
         assert r.headers["cache-control"] == "no-cache", path
+
+
+def test_closed_positions_in_summary(client):
+    """A fully-sold ticker moves from positions to closed_positions with its
+    FIFO-realized result, and stays reachable via the position-detail view."""
+    r = client.post("/api/portfolios", json={"name": "Zamknięte test", "currency": "USD"})
+    pid = r.json()["id"]
+    try:
+        client.post(f"/api/portfolios/{pid}/deposits", json={"amount": 1000, "date": "2026-01-02"})
+        client.post(f"/api/portfolios/{pid}/transactions", json={
+            "ticker": "AAPL", "type": "BUY", "shares": 2, "price": 90, "date": "2026-01-05",
+        })
+        client.post(f"/api/portfolios/{pid}/transactions", json={
+            "ticker": "AAPL", "type": "SELL", "shares": 2, "price": 110, "date": "2026-02-05",
+        })
+        s = client.get(f"/api/portfolios/{pid}/summary").json()
+        assert s["positions"] == []
+        [closed] = s["closed_positions"]
+        assert closed["ticker"] == "AAPL"
+        assert closed["shares_sold"] == 2
+        assert closed["invested"] == pytest.approx(180)
+        assert closed["proceeds"] == pytest.approx(220)
+        assert closed["realized_pnl"] == pytest.approx(40)
+        assert closed["realized_pnl_pct"] == pytest.approx(40 / 180 * 100)
+        assert closed["last_sell_date"] == "2026-02-05"
+        # manual entries: no settled amounts → portfolio-currency figures are
+        # the current-rate approximation (1:1 here), flagged as not FX-exact
+        assert closed["fx_exact"] is False
+        assert closed["realized_pnl_pc"] == pytest.approx(40)
+        assert closed["invested_pc"] == pytest.approx(180)
+        # closed tickers' realized result feeds the summary total
+        assert s["realized_pnl"] == pytest.approx(40)
+        # the detail view still works for a closed position
+        detail = client.get(f"/api/positions/{pid}/AAPL").json()
+        assert detail["lots"] == []
+        assert detail["summary"]["realized_pnl"] == pytest.approx(40)
+    finally:
+        client.delete(f"/api/portfolios/{pid}?force=true")

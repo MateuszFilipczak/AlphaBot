@@ -80,14 +80,22 @@ def reconstruct_history(
         d = _day(dep["date"])
         signed = dep["amount"] if dep.get("type", "DEPOSIT") == "DEPOSIT" else -dep["amount"]
         cash_by_day[d] = cash_by_day.get(d, 0.0) + signed
-        net_deposited_by_day[d] = net_deposited_by_day.get(d, 0.0) + signed
+        # income (dividends, interest) is cash but not capital — the dashed
+        # "deposited" line tracks contributions + capital returns, matching
+        # the base the lifetime-P&L formula subtracts
+        if dep.get("category", "CONTRIBUTION") != "INCOME":
+            net_deposited_by_day[d] = net_deposited_by_day.get(d, 0.0) + signed
 
     for txn in transactions:
         d = _day(txn["date"])
-        fee = txn.get("fee", 0.0) or 0.0
-        gross = txn["shares"] * txn["price"]
-        rate = fx_on(txn.get("currency"), d)
-        flow = (-(gross + fee) if txn["type"] == "BUY" else gross - fee) * rate
+        exact = txn.get("cash_amount")  # broker-settled amount (imports): exact, no FX
+        if exact is not None:
+            flow = -exact if txn["type"] == "BUY" else exact
+        else:
+            fee = txn.get("fee", 0.0) or 0.0
+            gross = txn["shares"] * txn["price"]
+            rate = fx_on(txn.get("currency"), d)
+            flow = (-(gross + fee) if txn["type"] == "BUY" else gross - fee) * rate
         cash_by_day[d] = cash_by_day.get(d, 0.0) + flow
         sign = 1.0 if txn["type"] == "BUY" else -1.0
         shares_delta.setdefault(d, {})[txn["ticker"]] = (

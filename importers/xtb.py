@@ -3,12 +3,14 @@ operation dicts out, no DB and no network. The web layer decides what to do
 with the result (duplicate detection, ticker verification, persisting).
 
 XTB's "Cash Operations" sheet is the source of truth: stock purchases/sales
-appear there alongside deposits and currency transfers, with the volume and
-price embedded in the Comment column ("OPEN BUY 0.8942 @ 75.0600"). Prices in
-those comments are in the ACCOUNT currency (XTB converts on the fly), which is
-why an imported transaction keeps the file's price and the portfolio's
-currency — notably for LSE instruments Yahoo quotes in GBp (pence): the XTB
-price is what was actually paid, so it is never rescaled here.
+appear there alongside every cash flow (deposits, withdrawals, currency
+transfers, dividends + withholding tax, free-funds interest + its tax, rights
+issues, subaccount transfers), with trade volume and price embedded in the
+Comment column ("OPEN BUY 0.8942 @ 75.0600"). Comment prices are in the
+INSTRUMENT's currency while Amount is in the ACCOUNT's currency — the
+`implied_rate` (|Amount| / shares×price) is 1.0 for same-currency instruments
+and the FX rate for foreign ones. XTB prices are what was actually paid and
+are never rescaled here (notably: no GBp/GBP pence games for LSE listings).
 """
 from __future__ import annotations
 
@@ -26,6 +28,23 @@ SUFFIX_MAP = {
     ".NL": ".AS",
     ".IT": ".MI",
     ".ES": ".MC",
+    ".DK": ".CO",
+}
+
+# Cash-operation Type → semantic kind shown in the preview. The DIRECTION is
+# never taken from the label — always from the Amount's sign (e.g. "Transfer"
+# rows are outgoing PLN→EUR conversions on the PLN account and incoming ones
+# on the EUR account).
+CASH_KINDS = {
+    "Deposit": "DEPOSIT",
+    "Withdrawal": "WITHDRAWAL",
+    "Transfer": "TRANSFER",
+    "Subaccount transfer": "SUBTRANSFER",
+    "Dividend": "DIVIDEND",
+    "Withholding tax": "TAX",
+    "Free funds interest": "INTEREST",
+    "Free funds interest tax": "TAX",
+    "Rights issue": "RIGHTS",
 }
 
 CASH_SHEET = "Cash Operations"
@@ -39,12 +58,39 @@ _COMMENT_RE = re.compile(
     r"(?:OPEN|CLOSE)\s+(?:BUY|SELL)\s+([\d.,]+)(?:/[\d.,]+)?\s*@\s*([\d.,]+)"
 )
 
-# |Amount| must match shares×price up to rounding: 1% relative, plus a small
-# absolute allowance so a €0.5 operation doesn't trip on a 1-cent rounding.
-_AMOUNT_REL_TOL = 0.01
-_AMOUNT_ABS_TOL = 0.02
+# Comment prices are in the INSTRUMENT's currency while Amount is in the
+# ACCOUNT's currency, so |Amount| / (shares×price) is 1.0 for same-currency
+# instruments and the FX rate for foreign ones (e.g. ~4.26 for EUR on a PLN
+# account). The parser only reports that implied rate; judging whether it is
+# legitimate needs the instrument currency, which the web layer knows.
+RATE_UNITY_TOL = 0.015
 
 _EXCEL_EPOCH = datetime(1899, 12, 30)
+
+# "Free-funds Interest 2026-05" → the month; "Currency conversion, PLN to EUR…"
+_MONTH_RE = re.compile(r"(\d{4}-\d{2})\s*$")
+_CONVERSION_RE = re.compile(r"\b([A-Z]{3}) to ([A-Z]{3})\b")
+
+
+def _cash_note(op_type: str, comment: str, ticker: str | None) -> str | None:
+    """Polish note stored with the cash flow, so the deposits list explains
+    where the money came from (dividend of what, which month's interest…)."""
+    if op_type == "Transfer":
+        m = _CONVERSION_RE.search(comment)
+        return f"przewalutowanie {m.group(1)}→{m.group(2)}" if m else "przewalutowanie"
+    if op_type == "Subaccount transfer":
+        return "transfer między subkontami"
+    if op_type == "Dividend":
+        return f"dywidenda {ticker}" if ticker else "dywidenda"
+    if op_type == "Withholding tax":
+        return f"podatek u źródła {ticker}" if ticker else "podatek u źródła"
+    if op_type in ("Free funds interest", "Free funds interest tax"):
+        base = "odsetki od wolnych środków" if op_type == "Free funds interest" else "podatek od odsetek"
+        m = _MONTH_RE.search(comment)
+        return f"{base} {m.group(1)}" if m else base
+    if op_type == "Rights issue":
+        return f"prawa poboru {ticker}" if ticker else "prawa poboru"
+    return None
 
 
 def map_ticker(xtb_ticker: str) -> str:
@@ -95,10 +141,12 @@ def _parse_comment(comment: str) -> tuple[float, float] | None:
     return shares, price
 
 
-def _amount_mismatch(amount: float, shares: float, price: float) -> bool:
-    expected = shares * price
-    tolerance = max(_AMOUNT_REL_TOL * max(abs(amount), expected), _AMOUNT_ABS_TOL)
-    return abs(abs(amount) - expected) > tolerance
+def rate_is_unity(rate: float | None, amount: float) -> bool:
+    """Does the implied rate say the price is in the account currency? A hair
+    of absolute slack keeps sub-1-unit operations from tripping on rounding."""
+    if rate is None:
+        return True
+    return abs(rate - 1) <= RATE_UNITY_TOL or abs(rate - 1) * abs(amount) <= 0.02
 
 
 def parse_xtb_export(content: bytes) -> dict:
@@ -151,7 +199,10 @@ def parse_xtb_export(content: bytes) -> dict:
             warnings.append(f"Pominięto wiersz „{op_type}” (ID {external_id}): brak daty lub kwoty")
             continue
 
-        if op_type in ("Stock purchase", "Stock sale"):
+        xtb_ticker = str(ticker or "").strip()
+        yahoo_ticker = map_ticker(xtb_ticker) if xtb_ticker else None
+
+        if op_type in ("Stock purchase", "Stock sale", "Stock sell"):
             kind = "BUY" if op_type == "Stock purchase" else "SELL"
             parsed = _parse_comment(comment)
             if parsed is None:
@@ -161,36 +212,39 @@ def parse_xtb_export(content: bytes) -> dict:
                 )
                 continue
             shares, price = parsed
-            warning = None
-            if _amount_mismatch(amount, shares, price):
-                warning = (
-                    f"kwota {abs(amount):.2f} nie zgadza się z ilość×cena "
-                    f"({shares * price:.2f})"
-                )
-            xtb_ticker = str(ticker or "").strip()
             operations.append({
                 "kind": kind,
+                "cash_type": None,
                 "xtb_ticker": xtb_ticker,
-                "ticker": map_ticker(xtb_ticker) if xtb_ticker else None,
+                "ticker": yahoo_ticker,
                 "date": date,
                 "shares": shares,
                 "price": price,
                 "amount": abs(amount),
+                # |Amount| / (shares×price): 1.0 = price in account currency,
+                # anything else = the FX rate of the instrument's currency
+                "implied_rate": abs(amount) / (shares * price) if shares * price > 0 else None,
                 "external_id": external_id,
                 "note": None,
-                "warning": warning,
+                "warning": None,
             })
-        elif op_type in ("Deposit", "Transfer"):
+        elif op_type in CASH_KINDS:
+            if amount == 0:
+                warnings.append(f"Pominięto „{op_type}” (ID {external_id}): kwota 0")
+                continue
             operations.append({
-                "kind": "DEPOSIT" if op_type == "Deposit" else "TRANSFER",
-                "xtb_ticker": None,
-                "ticker": None,
+                "kind": CASH_KINDS[op_type],
+                # direction from the sign, never from the label
+                "cash_type": "DEPOSIT" if amount > 0 else "WITHDRAWAL",
+                "xtb_ticker": xtb_ticker or None,
+                "ticker": yahoo_ticker,  # display only (e.g. dividend's instrument)
                 "date": date,
                 "shares": None,
                 "price": None,
                 "amount": abs(amount),
+                "implied_rate": None,
                 "external_id": external_id,
-                "note": "przewalutowanie z PLN" if op_type == "Transfer" else None,
+                "note": _cash_note(op_type, comment, yahoo_ticker),
                 "warning": None,
             })
         else:

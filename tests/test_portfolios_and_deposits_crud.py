@@ -2,6 +2,7 @@
 deposit/withdrawal edit+delete with the negative-cash guard, and the
 portfolio-history endpoint."""
 import pytest
+from uuid import uuid4
 from fastapi.testclient import TestClient
 
 import web.server as server
@@ -186,7 +187,9 @@ def test_derive_instrument_type_etc_heuristic():
 def funded(client):
     """Fresh portfolio: deposit 1000 (01-02) → BUY 800 (01-05) → withdraw 150
     (01-10). Cash: 50. Any edit that breaks coverage must be rejected."""
-    pid = make_portfolio(client, f"Fundusz-{id(client)}")
+    # uuid, NOT id(client): CPython reuses object addresses across tests, and
+    # a leftover same-named portfolio from a previous test would 400 here
+    pid = make_portfolio(client, f"Fundusz-{uuid4().hex[:12]}")
     r = client.post(f"/api/portfolios/{pid}/deposits", json={"amount": 1000, "date": "2026-01-02"})
     dep_id = r.json()["id"]
     client.post(f"/api/portfolios/{pid}/transactions", json={
@@ -196,7 +199,8 @@ def funded(client):
         "amount": 150, "date": "2026-01-10", "note": "stara notatka",
     })
     wd_id = r.json()["id"]
-    return pid, dep_id, wd_id
+    yield pid, dep_id, wd_id
+    client.delete(f"/api/portfolios/{pid}?force=true")
 
 
 def test_shrinking_deposit_below_later_buy_is_blocked(client, funded):

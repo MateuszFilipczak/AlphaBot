@@ -86,14 +86,23 @@ button { font: inherit; cursor: pointer; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ---- Summary tiles ---- */
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 24px; }
+/* one row on desktop; wraps into 2–3 columns below tablet width */
+.tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 24px; }
+@media (max-width: 860px) {
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+}
 .tile {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 14px 16px;
+  border-radius: 12px; padding: 12px 14px; min-width: 0;
 }
-.tile .label { color: var(--muted); font-size: 12.5px; margin-bottom: 4px; }
-.tile .value { font-size: 22px; font-weight: 700; }
-.tile .sub { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+.tile .label { color: var(--muted); font-size: 12px; margin-bottom: 4px; white-space: nowrap; }
+.tile .value { font-size: 19px; font-weight: 700; white-space: nowrap; }
+.tile .sub { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+/* explanations live in a hover tooltip (native title), marked by ⓘ */
+.tile .info {
+  cursor: help; color: var(--muted); font-size: 11px;
+  margin-left: 4px; vertical-align: 1px;
+}
 
 .pnl-up { color: var(--up); }
 .pnl-down { color: var(--down); }
@@ -147,6 +156,18 @@ tr.row-total td { font-weight: 700; border-top: 1px solid var(--border); }
 
 h2 { font-size: 15px; color: var(--ink-2); font-weight: 600; margin: 28px 0 10px; }
 .empty { color: var(--muted); padding: 24px; text-align: center; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.section-head h2 { margin-bottom: 10px; }
+/* collapsible section header: the whole h2 is the toggle */
+h2.collapsible {
+  cursor: pointer; user-select: none; display: flex; align-items: center; gap: 7px;
+}
+h2.collapsible:hover { color: var(--ink); }
+h2 .chevron { font-size: 11px; transition: transform 0.15s ease; }
+h2 .chevron.open { transform: rotate(90deg); }
+h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px; }
+.pager-info { color: var(--muted); font-size: 13px; }
 
 /* ---- Position detail ---- */
 .pos-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin: 4px 0 14px; }
@@ -160,7 +181,11 @@ h2 { font-size: 15px; color: var(--ink-2); font-weight: 600; margin: 28px 0 10px
 .seg { display: flex; background: var(--surface-2); border-radius: 8px; padding: 2px; }
 .seg button { border: 0; background: transparent; color: var(--ink-2); padding: 4px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; }
 .seg button.active { background: var(--page); color: var(--ink); }
-.chart-box { position: relative; height: 360px; }
+.seg.right { margin-left: auto; }
+.seg button.icon-btn { display: flex; align-items: center; padding: 4px 10px; }
+/* overflow: belt for the marker-dot overlay — dots are filtered to the pane
+   in JS, this clips any transient frame during a fast pan */
+.chart-box { position: relative; height: 360px; overflow: hidden; }
 .chart-box.history { height: 240px; }
 .chart-title { font-weight: 600; color: var(--ink-2); font-size: 14px; align-self: center; margin-right: auto; }
 

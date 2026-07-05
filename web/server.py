@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 import db
-from importers.xtb import parse_xtb_export
+from importers.xtb import parse_xtb_export, rate_is_unity
 from data.yahoo import (
     get_close_series,
     get_current_price,
@@ -191,7 +191,8 @@ class InstrumentTypeIn(BaseModel):
 class ImportOperationIn(BaseModel):
     """One row the user accepted on the import preview screen. The ticker may
     differ from the parser's mapping — the preview lets the user correct it."""
-    kind: str = Field(pattern="^(BUY|SELL|DEPOSIT|TRANSFER)$")
+    kind: str = Field(pattern="^(BUY|SELL|DEPOSIT|WITHDRAWAL|TRANSFER|SUBTRANSFER|DIVIDEND|TAX|INTEREST|RIGHTS)$")
+    cash_type: str | None = Field(default=None, pattern="^(DEPOSIT|WITHDRAWAL)$")
     ticker: str | None = Field(default=None, max_length=12)
     date: str
     shares: float | None = Field(default=None, gt=0)
@@ -223,7 +224,7 @@ def _current_cash(portfolio) -> float:
         return r if r is not None else 1.0
 
     txns_fx = [{**t, "currency": txn_currency(t)} for t in txns]
-    return cash_balance(db.get_total_deposited(portfolio["id"]), txns_fx, fx=rate_for)
+    return cash_balance(db.get_cash_flows_total(portfolio["id"]), txns_fx, fx=rate_for)
 
 
 # ---- Portfolios & summary ---------------------------------------------------
@@ -290,6 +291,20 @@ def remove_portfolio(portfolio_id: int, force: bool = False):
     return {"deleted": portfolio_id, "transactions": txns, "deposits": deps}
 
 
+def _sales_cash_totals(state: dict) -> tuple[float, float, float] | None:
+    """(invested, proceeds, realized) in the PORTFOLIO currency, from the
+    broker-settled amounts — FX-exact, matching the broker's own Profit/Loss.
+    None when any involved transaction lacks cash_amount (manual entries)."""
+    sales = state["sales"]
+    if not sales or any(s["realized_cash"] is None for s in sales):
+        return None
+    return (
+        sum(s["cash_cost"] for s in sales),
+        sum(s["cash_proceeds"] for s in sales),
+        sum(s["realized_cash"] for s in sales),
+    )
+
+
 @app.get("/api/portfolios/{portfolio_id}/summary")
 def portfolio_summary(portfolio_id: int):
     portfolio = _get_portfolio_or_404(portfolio_id)
@@ -341,7 +356,9 @@ def portfolio_summary(portfolio_id: int):
             unrealized_pc = None
             unpriced.append(ticker)
         positions_value += value_pc
-        realized_total += summary["realized_pnl"] * rate
+        # partial sells of a still-open ticker: FX-exact when possible
+        cash_totals = _sales_cash_totals(states[ticker])
+        realized_total += cash_totals[2] if cash_totals else summary["realized_pnl"] * rate
 
         positions.append({
             "ticker": ticker,
@@ -368,14 +385,64 @@ def portfolio_summary(portfolio_id: int):
         inst = instruments.get(t["ticker"]) or db.get_instrument(t["ticker"])
         return (inst or {}).get("currency")
 
+    # fully-sold tickers: realized results only, clickable into the same
+    # detail view (chart + sale history) as open positions. Imported trades
+    # carry broker-settled amounts, so the portfolio-currency figures are
+    # FX-exact (the broker's own Profit/Loss); manual entries fall back to
+    # native × current rate (the usual approximation).
+    closed_positions = []
+    for ticker in sorted(t for t, s in states.items() if s["shares_owned"] <= 1e-9):
+        state = states[ticker]
+        if not state["sales"]:
+            continue
+        inst = db.get_instrument(ticker) or _ensure_instrument(ticker)
+        icur = (inst or {}).get("currency") or pcur
+        rate = rate_for(icur)
+        cost_sold = sum(s["cost_basis"] for s in state["sales"])
+        proceeds = sum(s["proceeds"] for s in state["sales"])
+        realized = state["realized_pnl"]
+        cash_totals = _sales_cash_totals(state)
+        if cash_totals:
+            invested_pc, proceeds_pc, realized_pc = cash_totals
+        else:
+            invested_pc, proceeds_pc, realized_pc = cost_sold * rate, proceeds * rate, realized * rate
+        realized_total += realized_pc
+        closed_positions.append({
+            "ticker": ticker,
+            "name": (inst or {}).get("name") or ticker,
+            "type": (inst or {}).get("type") or "EQUITY",
+            "currency": icur,
+            "shares_sold": sum(s["shares"] for s in state["sales"]),
+            "invested": cost_sold,                    # native
+            "proceeds": proceeds,                     # native
+            "realized_pnl": realized,                 # native
+            # portfolio currency (FX-exact when the trades were imported):
+            "invested_pc": invested_pc,
+            "proceeds_pc": proceeds_pc,
+            "realized_pnl_pc": realized_pc,
+            "realized_pnl_pct": (realized_pc / invested_pc * 100) if invested_pc > 0 else 0.0,
+            "fx_exact": cash_totals is not None,
+            "first_date": min(t["date"][:10] for t in txns if t["ticker"] == ticker),
+            "last_sell_date": max(s["date"][:10] for s in state["sales"]),
+        })
+
     txns_fx = [{**t, "currency": txn_fx_currency(t)} for t in txns]
-    cash = cash_balance(deposited, txns_fx, fx=rate_for)
-    total_pnl = realized_total + unrealized_total
-    total_pnl_pct = (total_pnl / deposited * 100) if deposited > 0 else 0.0
+    cash = cash_balance(db.get_cash_flows_total(portfolio_id), txns_fx, fx=rate_for)
+    # Lifetime profit is money-weighted: everything the portfolio is worth now
+    # minus the capital actually contributed. This picks up investment income
+    # (dividends, interest) and FX gains on cash flows, which per-position
+    # realized+unrealized (instrument currency × today's rate) can't see.
+    total_pnl = cash + positions_value - deposited
+    # % of gross capital ever paid in — net contributed can be ~0 or negative
+    # on accounts that withdrew their gains, which would blow the ratio up.
+    contributed_in, contributed_out = db.get_contribution_totals(portfolio_id)
+    total_pnl_pct = (total_pnl / contributed_in * 100) if contributed_in > 0 else 0.0
 
     return {
         "portfolio": dict(portfolio),
         "deposited": deposited,
+        "contributed_in": contributed_in,    # bank deposits + transfers in
+        "contributed_out": contributed_out,  # withdrawals + transfers out
         "cash": cash,
         "positions_value": positions_value,
         "realized_pnl": realized_total,
@@ -386,6 +453,7 @@ def portfolio_summary(portfolio_id: int):
         "fx_rates": fx_rates,           # e.g. {"PLN": 0.234} → note "approximate" in UI
         "fx_unavailable": fx_unavailable,
         "positions": positions,
+        "closed_positions": closed_positions,
     }
 
 
@@ -482,10 +550,14 @@ def _min_running_cash(portfolio, deposits: list[dict]) -> float:
         signed = d["amount"] if d.get("type", "DEPOSIT") == "DEPOSIT" else -d["amount"]
         events.append((d["date"][:10], 0 if signed >= 0 else 1, signed))
     for t in txns:
-        currency = t.get("currency") or (instruments.get(t["ticker"]) or {}).get("currency")
-        fee = t.get("fee", 0.0) or 0.0
-        gross = t["shares"] * t["price"]
-        flow = (-(gross + fee) if t["type"] == "BUY" else gross - fee) * rate_for(currency)
+        exact = t.get("cash_amount")  # broker-settled amount (imports): exact
+        if exact is not None:
+            flow = -exact if t["type"] == "BUY" else exact
+        else:
+            currency = t.get("currency") or (instruments.get(t["ticker"]) or {}).get("currency")
+            fee = t.get("fee", 0.0) or 0.0
+            gross = t["shares"] * t["price"]
+            flow = (-(gross + fee) if t["type"] == "BUY" else gross - fee) * rate_for(currency)
         events.append((t["date"][:10], 0 if flow >= 0 else 1, flow))
 
     cash = 0.0
@@ -668,14 +740,31 @@ def set_instrument_type(ticker: str, body: InstrumentTypeIn):
 
 _IMPORT_MAX_BYTES = 10 * 1024 * 1024
 
+# proceeds of investing (P&L), as opposed to capital moved in/out. Rights
+# issues are deliberately NOT income (their cash usually offsets a dilution
+# drop in the share price — counting them as profit would double-count) but
+# not user-contributed capital either → the third bucket, RETURN.
+_INCOME_KINDS = {"DIVIDEND", "TAX", "INTEREST"}
+
+
+def _import_category(kind: str) -> str:
+    if kind in _INCOME_KINDS:
+        return "INCOME"
+    if kind == "RIGHTS":
+        return "RETURN"
+    return "CONTRIBUTION"
+
 
 @app.post("/api/portfolios/{portfolio_id}/import/xtb")
 async def preview_xtb_import(portfolio_id: int, file: UploadFile = File(...)):
     """Parse an XTB xlsx export and return the operations for the preview
     screen — nothing is written here. Each operation carries `already_exists`
-    (its XTB id is in this portfolio) and `ticker_verified` (Yahoo knows the
-    mapped ticker; false → the UI offers a manual correction field)."""
-    _get_portfolio_or_404(portfolio_id)
+    (its XTB id is in this portfolio) and, for trades, `ticker_verified`
+    (Yahoo knows the mapped ticker; false → the UI offers a manual correction
+    field) plus an amount-vs-shares×price verdict that accounts for foreign
+    currencies (the implied rate IS the FX rate for e.g. a DKK instrument on
+    a PLN account — only same-currency mismatches are real errors)."""
+    portfolio = _get_portfolio_or_404(portfolio_id)
     content = await file.read()
     if len(content) > _IMPORT_MAX_BYTES:
         raise HTTPException(status_code=400, detail="Plik jest za duży (limit 10 MB)")
@@ -685,25 +774,78 @@ async def preview_xtb_import(portfolio_id: int, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(exc))
 
     existing = db.get_external_ids(portfolio_id)
-    instruments = {
-        ticker: _ensure_instrument(ticker)  # fail-soft: None → unverified
-        for ticker in sorted({op["ticker"] for op in parsed["operations"] if op["ticker"]})
+    trade_tickers = sorted({
+        op["ticker"] for op in parsed["operations"]
+        if op["ticker"] and op["kind"] in ("BUY", "SELL")
+    })
+    instruments = {t: _ensure_instrument(t) for t in trade_tickers}  # fail-soft: None → unverified
+
+    # manually-entered transactions have no external_id, so the id-based
+    # duplicate check can't see them — match by substance instead, or the
+    # import doubles positions entered by hand before the import feature
+    manual = {
+        (t["ticker"], t["type"], t["date"][:10])
+        : (t["shares"], t["price"])
+        for ticker in trade_tickers
+        for t in db.get_transactions(portfolio_id, ticker)
+        if not t.get("external_id")
     }
+
+    def matches_manual(op) -> bool:
+        key = (op["ticker"], op["kind"], op["date"])
+        if key not in manual:
+            return False
+        shares, price = manual[key]
+        return (abs(shares - op["shares"]) < 1e-6
+                and abs(price - op["price"]) <= 0.005 * max(price, op["price"]))
+
     for op in parsed["operations"]:
         op["already_exists"] = op["external_id"] is not None and op["external_id"] in existing
+        if op["kind"] not in ("BUY", "SELL"):
+            op["ticker_verified"] = None
+            op["instrument_currency"] = None
+            op["similar_exists"] = False
+            continue
+        op["similar_exists"] = not op["already_exists"] and matches_manual(op)
         inst = instruments.get(op["ticker"]) if op["ticker"] else None
         op["ticker_verified"] = (inst is not None) if op["ticker"] else None
-        op["instrument_currency"] = (inst or {}).get("currency")
+        icur = (inst or {}).get("currency")
+        op["instrument_currency"] = icur
+        rate = op.get("implied_rate")
+        if rate is not None and not rate_is_unity(rate, op["amount"]):
+            if icur is None:
+                op["warning"] = f"cena wygląda na obcą walutę (implikowany kurs {rate:.4g})"
+            elif icur == portfolio["currency"]:
+                op["warning"] = (
+                    f"kwota {op['amount']:.2f} nie zgadza się z ilość×cena "
+                    f"({(op['shares'] or 0) * (op['price'] or 0):.2f})"
+                )
+            # differing known currency: the rate is the FX conversion — fine
     return {"operations": parsed["operations"], "warnings": parsed["warnings"]}
+
+
+def _import_txn_currency(op: ImportOperationIn, portfolio) -> str:
+    """Currency an imported trade is recorded in. XTB comment prices are in
+    the instrument's currency: when |Amount| ≈ shares×price the instrument
+    trades in the account currency (also the GBp-on-LSE case — the paid price
+    is never rescaled); otherwise take Yahoo's instrument currency, with GBp
+    normalized to GBP since XTB prices are in pounds, not pence."""
+    rate = op.amount / (op.shares * op.price) if op.shares and op.price else None
+    if rate is None or rate_is_unity(rate, op.amount):
+        return portfolio["currency"]
+    icur = (_ensure_instrument(op.ticker) or {}).get("currency")
+    if icur == "GBp":
+        icur = "GBP"
+    return icur or portfolio["currency"]
 
 
 @app.post("/api/portfolios/{portfolio_id}/import/xtb/commit", status_code=201)
 def commit_xtb_import(portfolio_id: int, body: ImportCommitIn):
     """Persist the rows the user kept selected. Duplicates (external_id already
     in the portfolio) are skipped, the whole batch is FIFO-validated per ticker
-    BEFORE any write, and imported prices keep the file's values in the
-    portfolio's currency — XTB charges the account currency even for foreign
-    listings (incl. GBp-quoted LSE instruments), so no rescaling ever."""
+    BEFORE any write. Trades keep the file's prices in the instrument's
+    currency (see _import_txn_currency); every other kind is a cash flow in
+    the deposits table, direction from `cash_type`."""
     portfolio = _get_portfolio_or_404(portfolio_id)
     existing = db.get_external_ids(portfolio_id)
 
@@ -746,12 +888,15 @@ def commit_xtb_import(portfolio_id: int, body: ImportCommitIn):
         if op.kind in ("BUY", "SELL"):
             db.add_transaction(
                 portfolio_id, op.ticker.upper().strip(), op.kind, op.shares, op.price,
-                0.0, op.date, op.note, currency=portfolio["currency"],
+                0.0, op.date, op.note, currency=_import_txn_currency(op, portfolio),
                 external_id=op.external_id,
+                cash_amount=op.amount,  # the exact settled amount — cash stays true
             )
-        else:  # DEPOSIT / TRANSFER — both are cash inflows
-            db.add_deposit(op.amount, portfolio_id, op.date, note=op.note,
-                           external_id=op.external_id)
+        else:  # dividends, interest, taxes, transfers… — cash flows
+            db.add_deposit(op.amount, portfolio_id, op.date,
+                           type_=op.cash_type or "DEPOSIT", note=op.note,
+                           external_id=op.external_id,
+                           category=_import_category(op.kind))
         imported += 1
     return {"imported": imported, "skipped_duplicates": skipped}
 
@@ -780,10 +925,15 @@ def position_detail(portfolio_id: int, ticker: str):
             pnl_pct = (pnl / lot["cost_basis"] * 100) if lot["cost_basis"] > 0 else 0.0
         lots.append({**lot, "value_today": value_today, "pnl": pnl, "pnl_pct": pnl_pct})
 
+    icur = (inst or {}).get("currency") or portfolio["currency"]
     return {
         "ticker": ticker,
         "instrument": inst,  # {name, type, exchange, currency} or None
-        "currency": (inst or {}).get("currency") or portfolio["currency"],
+        "currency": icur,
+        "portfolio_currency": portfolio["currency"],
+        # current instrument→portfolio rate, for ≈-converting rows that lack a
+        # broker-settled amount; None when currencies match or no quote
+        "fx_rate": _fx_rate(icur, portfolio["currency"]) if icur != portfolio["currency"] else None,
         "summary": summary,
         "lots": lots,
         "sales": state["sales"],
@@ -793,17 +943,26 @@ def position_detail(portfolio_id: int, ticker: str):
 
 # ---- Chart ------------------------------------------------------------------
 
-_RANGES = {"1mo", "3mo", "6mo", "1y", "2y", "5y", "max"}
+_RANGES = {"1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "max"}
+# intraday ranges need intraday candles — everything longer stays daily
+_RANGE_INTERVALS = {"1d": "15m", "5d": "1h"}
+_INTERVALS = {"15m", "30m", "1h", "1d", "1wk"}
 
 
 @app.get("/api/chart/{ticker}")
-def chart(ticker: str, range: str = Query("3mo"), interval: str = Query("1d"),
+def chart(ticker: str, range: str = Query("3mo"), interval: str | None = Query(None),
           portfolio_id: int | None = None):
     """OHLC candles from yfinance plus this portfolio's transaction markers.
     Marker status: 'open' = buy lot still (partially) held, 'closed' = buy lot
-    fully consumed by sells, 'sell' = a sell transaction."""
+    fully consumed by sells, 'sell' = a sell transaction. Interval defaults
+    per range (15m for 1d, 1h for 5d, 1d otherwise). Markers are day-granular,
+    so intraday charts render without them."""
     if range not in _RANGES:
         raise HTTPException(status_code=400, detail=f"range must be one of {sorted(_RANGES)}")
+    if interval is None:
+        interval = _RANGE_INTERVALS.get(range, "1d")
+    if interval not in _INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {sorted(_INTERVALS)}")
     ticker = ticker.upper()
     df = get_history(ticker, period=range, interval=interval)
     if df is None:

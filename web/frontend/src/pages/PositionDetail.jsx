@@ -8,11 +8,33 @@ import ConfirmModal from "../components/ConfirmModal.jsx";
 import RowMenu from "../components/RowMenu.jsx";
 
 const RANGES = [
+  ["1d", "1D"],
+  ["5d", "1T"],
   ["1mo", "1M"],
-  ["3mo", "3M"],
+  ["6mo", "6M"],
   ["1y", "1R"],
+  ["5y", "5L"],
   ["max", "MAX"],
 ];
+
+// graphic line/candles toggle icons
+const LineIcon = () => (
+  <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+    <polyline points="1,10 5,5.5 8,7.5 12,2.5 15,4.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+  </svg>
+);
+const CandlesIcon = () => (
+  <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden="true">
+    <g stroke="currentColor" strokeWidth="1" fill="currentColor">
+      <line x1="3" y1="0.5" x2="3" y2="11.5" />
+      <rect x="1.4" y="3" width="3.2" height="5" rx="0.5" />
+      <line x1="8" y1="1.5" x2="8" y2="10" />
+      <rect x="6.4" y="4.5" width="3.2" height="3.5" rx="0.5" />
+      <line x1="13" y1="2" x2="13" y2="11.5" />
+      <rect x="11.4" y="4" width="3.2" height="5.5" rx="0.5" />
+    </g>
+  </svg>
+);
 
 const INSTRUMENT_TYPES = [
   ["EQUITY", "Akcja"],
@@ -76,7 +98,7 @@ export default function PositionDetail() {
   const [detail, setDetail] = useState(null);
   const [chart, setChart] = useState(null);
   const [chartError, setChartError] = useState(null);
-  const [range, setRange] = useState("3mo");
+  const [range, setRange] = useState("6mo");
   const [mode, setMode] = useState("line");
   const [showBuys, setShowBuys] = useState(true);
   const [showSells, setShowSells] = useState(true);
@@ -116,10 +138,10 @@ export default function PositionDetail() {
     getChart(ticker, range, portfolioId).then(setChart).catch((e) => setChartError(e.message));
   }, [portfolioId, ticker, range, refreshTick]);
 
-  // realized P&L per SELL transaction id, for the history table
-  const realizedByTxn = useMemo(() => {
+  // full sale record per SELL transaction id (native + settled-cash figures)
+  const saleByTxn = useMemo(() => {
     const map = new Map();
-    for (const s of detail?.sales ?? []) map.set(s.txn_id, s.realized_pnl);
+    for (const s of detail?.sales ?? []) map.set(s.txn_id, s);
     return map;
   }, [detail]);
 
@@ -128,8 +150,24 @@ export default function PositionDetail() {
 
   // prices/lots here are NATIVE — the instrument's trading currency
   const cur = detail.currency ?? portfolio.currency;
+  const pcur = portfolio.currency;
+  const foreign = cur !== pcur;
+  const fxRate = detail.fx_rate; // current rate for ≈-fallbacks (may be null)
   const inst = detail.instrument;
   const s = detail.summary;
+
+  // portfolio-currency value of one transaction: broker-settled amount when
+  // imported (exact), otherwise ≈ at the current rate
+  const txnValuePc = (t) => {
+    if (t.cash_amount != null) return { value: t.cash_amount, exact: true };
+    if (fxRate != null) return { value: t.shares * t.price * fxRate, exact: false };
+    return null;
+  };
+  // FX-exact realized total (matches the broker) — only when every sale has it
+  const realizedPcTotal =
+    foreign && detail.sales.length > 0 && detail.sales.every((x) => x.realized_cash != null)
+      ? detail.sales.reduce((acc, x) => acc + x.realized_cash, 0)
+      : null;
 
   return (
     <>
@@ -184,11 +222,21 @@ export default function PositionDetail() {
       <div className="chart-card">
         <div className="chart-controls">
           <div className="seg" role="group" aria-label="Typ wykresu">
-            <button className={mode === "line" ? "active" : ""} onClick={() => setMode("line")}>
-              Linia
+            <button
+              className={`icon-btn ${mode === "line" ? "active" : ""}`}
+              title="Linia"
+              aria-label="Wykres liniowy"
+              onClick={() => setMode("line")}
+            >
+              <LineIcon />
             </button>
-            <button className={mode === "candles" ? "active" : ""} onClick={() => setMode("candles")}>
-              Świece
+            <button
+              className={`icon-btn ${mode === "candles" ? "active" : ""}`}
+              title="Świece"
+              aria-label="Wykres świecowy"
+              onClick={() => setMode("candles")}
+            >
+              <CandlesIcon />
             </button>
           </div>
           <div className="seg" role="group" aria-label="Zakres">
@@ -202,7 +250,7 @@ export default function PositionDetail() {
               </button>
             ))}
           </div>
-          <div className="seg" role="group" aria-label="Widoczność markerów">
+          <div className="seg right" role="group" aria-label="Widoczność markerów">
             <button
               className={showBuys ? "active" : ""}
               aria-pressed={showBuys}
@@ -302,7 +350,11 @@ export default function PositionDetail() {
         Historia transakcji{" "}
         {s.realized_pnl !== 0 && (
           <span className={pnlClass(s.realized_pnl)}>
-            (zrealizowany zysk: {fmtMoney(s.realized_pnl, cur, { sign: true })})
+            (zrealizowany zysk:{" "}
+            {realizedPcTotal != null
+              ? `${fmtMoney(realizedPcTotal, pcur, { sign: true })} · ${fmtMoney(s.realized_pnl, cur, { sign: true })}`
+              : fmtMoney(s.realized_pnl, cur, { sign: true })}
+            )
           </span>
         )}
       </h2>
@@ -314,6 +366,7 @@ export default function PositionDetail() {
               <th>Typ</th>
               <th>Akcje</th>
               <th>Cena</th>
+              {foreign && <th>Kwota ({pcur})</th>}
               <th>Prowizja</th>
               <th>Zrealizowany zysk</th>
               <th>Notatka</th>
@@ -322,16 +375,38 @@ export default function PositionDetail() {
           </thead>
           <tbody>
             {[...detail.transactions].reverse().map((t) => {
-              const realized = t.type === "SELL" ? realizedByTxn.get(t.id) : null;
+              const sale = t.type === "SELL" ? saleByTxn.get(t.id) : null;
+              const realized = sale?.realized_pnl ?? null;
+              // portfolio-currency realized: broker-exact when available,
+              // otherwise ≈ at the current rate
+              const realizedPc =
+                sale == null ? null
+                : sale.realized_cash != null ? { value: sale.realized_cash, exact: true }
+                : fxRate != null ? { value: sale.realized_pnl * fxRate, exact: false }
+                : null;
+              const valuePc = foreign ? txnValuePc(t) : null;
               return (
                 <tr key={t.id} className={t.type === "SELL" ? "row-muted" : ""}>
                   <td>{fmtDate(t.date)}</td>
                   <td>{t.type === "BUY" ? "Kupno" : "Sprzedaż"}</td>
                   <td>{fmtShares(t.shares)}</td>
                   <td>{fmtMoney(t.price, cur)}</td>
+                  {foreign && (
+                    <td>
+                      {valuePc ? `${valuePc.exact ? "" : "≈ "}${fmtMoney(valuePc.value, pcur)}` : "—"}
+                    </td>
+                  )}
                   <td>{t.fee ? fmtMoney(t.fee, cur) : "—"}</td>
                   <td className={realized != null ? pnlClass(realized) : ""}>
-                    {realized != null ? fmtMoney(realized, cur, { sign: true }) : "—"}
+                    {realized == null ? "—" : foreign && realizedPc ? (
+                      <>
+                        {realizedPc.exact ? "" : "≈ "}
+                        {fmtMoney(realizedPc.value, pcur, { sign: true })}
+                        <span className="instr-name">{fmtMoney(realized, cur, { sign: true })}</span>
+                      </>
+                    ) : (
+                      fmtMoney(realized, cur, { sign: true })
+                    )}
                   </td>
                   <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
                     {t.note ?? ""}

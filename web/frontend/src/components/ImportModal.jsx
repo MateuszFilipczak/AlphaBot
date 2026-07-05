@@ -6,7 +6,13 @@ const KIND_LABELS = {
   BUY: "Kupno",
   SELL: "Sprzedaż",
   DEPOSIT: "Wpłata",
+  WITHDRAWAL: "Wypłata",
   TRANSFER: "Przewalutowanie",
+  SUBTRANSFER: "Transfer subkonta",
+  DIVIDEND: "Dywidenda",
+  TAX: "Podatek",
+  INTEREST: "Odsetki",
+  RIGHTS: "Prawa poboru",
 };
 
 // "Importuj ▾" button for the portfolio header: a source menu (XTB for now),
@@ -99,7 +105,9 @@ function ImportPreviewModal({ portfolio, preview, onClose, onImported }) {
   const [rows, setRows] = useState(() =>
     preview.operations.map((op) => ({
       ...op,
-      selected: !op.already_exists,
+      // duplicates by broker id AND probable copies of manually-entered
+      // transactions start unchecked — importing them doubles the position
+      selected: !op.already_exists && !op.similar_exists,
       ticker: op.ticker ?? "",
     }))
   );
@@ -129,6 +137,7 @@ function ImportPreviewModal({ portfolio, preview, onClose, onImported }) {
         portfolio.id,
         selected.map((r) => ({
           kind: r.kind,
+          cash_type: r.cash_type,
           ticker: r.ticker.trim() ? r.ticker.trim().toUpperCase() : null,
           date: r.date,
           shares: r.shares,
@@ -192,7 +201,10 @@ function ImportPreviewModal({ portfolio, preview, onClose, onImported }) {
                         onChange={(e) => setRow(i, { selected: e.target.checked })}
                       />
                     </td>
-                    <td className={`import-kind ${r.kind === "SELL" ? "pnl-down" : ""}`}>
+                    <td
+                      className={`import-kind ${r.kind === "SELL" ? "pnl-down" : ""}`}
+                      title={r.note ?? undefined}
+                    >
                       {KIND_LABELS[r.kind] ?? r.kind}
                     </td>
                     <td>
@@ -214,15 +226,30 @@ function ImportPreviewModal({ portfolio, preview, onClose, onImported }) {
                           />
                         )
                       ) : (
-                        "—"
+                        r.ticker || "—" /* e.g. the instrument a dividend belongs to */
                       )}
                     </td>
                     <td>{fmtDate(r.date)}</td>
                     <td>{r.shares !== null ? fmtShares(r.shares) : "—"}</td>
-                    <td>{r.price !== null ? fmtMoney(r.price, portfolio.currency) : "—"}</td>
-                    <td>{fmtMoney(r.amount, portfolio.currency)}</td>
+                    <td>
+                      {r.price !== null
+                        ? fmtMoney(r.price, r.instrument_currency ?? portfolio.currency)
+                        : "—"}
+                    </td>
+                    <td className={r.cash_type === "WITHDRAWAL" ? "pnl-down" : ""}>
+                      {r.cash_type === "WITHDRAWAL" ? "−" : ""}
+                      {fmtMoney(r.amount, portfolio.currency)}
+                    </td>
                     <td className="import-status">
                       {r.already_exists && <span className="badge">już istnieje</span>}
+                      {r.similar_exists && (
+                        <span
+                          className="badge warn"
+                          title="W portfelu jest ręcznie dodana transakcja o tym samym tickerze, dacie, ilości i cenie — import zdublowałby pozycję"
+                        >
+                          ręczny duplikat?
+                        </span>
+                      )}
                       {!r.already_exists && r.ticker && !r.ticker_verified && (
                         <span className="badge warn" title="Ticker niezweryfikowany w Yahoo — możesz go poprawić">
                           nieznany ticker

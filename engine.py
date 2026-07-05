@@ -59,11 +59,21 @@ def replay_fifo(transactions: list[dict]) -> dict:
            "proceeds",            # shares * price - fee
            "cost_basis",          # FIFO-matched basis incl. proportional buy fees
            "realized_pnl",        # proceeds - cost_basis
+           "cash_proceeds",       # broker-settled portfolio-currency amount (or None)
+           "cash_cost",           # FIFO-matched share of the buys' settled amounts (or None)
+           "realized_cash",       # cash_proceeds - cash_cost — FX-EXACT realized
+                                  # P&L in the portfolio currency; None when any
+                                  # involved transaction lacks cash_amount
            "matched": [{"buy_txn_id", "shares", "buy_price"}]}
       ],
       "shares_owned": float,
-      "realized_pnl": float,     # sum over sales
+      "realized_pnl": float,     # sum over sales (instrument currency)
     }
+
+    Prices are in the instrument's currency. Transactions imported from a
+    broker export additionally carry `cash_amount` — the exact settled amount
+    in the portfolio's currency; the cash_* fields FIFO-match those amounts,
+    reproducing the broker's own FX-exact Profit/Loss per sale.
 
     Raises OversellError if any sell exceeds holdings at its point in time.
     """
@@ -80,6 +90,7 @@ def replay_fifo(transactions: list[dict]) -> dict:
                 "shares_remaining": txn["shares"],
                 "fee_initial": txn.get("fee", 0.0) or 0.0,
                 "fee_remaining": txn.get("fee", 0.0) or 0.0,
+                "cash_initial": txn.get("cash_amount"),  # settled amount, or None
             })
             continue
 
@@ -91,6 +102,8 @@ def replay_fifo(transactions: list[dict]) -> dict:
 
         matched = []
         cost_basis = 0.0
+        cash_cost = 0.0
+        cash_known = True  # every matched lot must carry a settled amount
         remaining = to_sell
         for lot in open_lots:
             if remaining <= 1e-12:
@@ -103,6 +116,10 @@ def replay_fifo(transactions: list[dict]) -> dict:
                 if lot["shares_initial"] > 0 else 0.0
             )
             cost_basis += take * lot["price"] + fee_share
+            if lot["cash_initial"] is not None and lot["shares_initial"] > 0:
+                cash_cost += lot["cash_initial"] * (take / lot["shares_initial"])
+            else:
+                cash_known = False
             lot["shares_remaining"] -= take
             lot["fee_remaining"] -= fee_share
             matched.append({
@@ -116,6 +133,8 @@ def replay_fifo(transactions: list[dict]) -> dict:
 
         fee = txn.get("fee", 0.0) or 0.0
         proceeds = txn["shares"] * txn["price"] - fee
+        sell_cash = txn.get("cash_amount")
+        cash_exact = sell_cash is not None and cash_known
         sales.append({
             "txn_id": txn.get("id"),
             "date": txn["date"],
@@ -126,6 +145,9 @@ def replay_fifo(transactions: list[dict]) -> dict:
             "proceeds": proceeds,
             "cost_basis": cost_basis,
             "realized_pnl": proceeds - cost_basis,
+            "cash_proceeds": sell_cash if cash_exact else None,
+            "cash_cost": cash_cost if cash_exact else None,
+            "realized_cash": (sell_cash - cash_cost) if cash_exact else None,
             "matched": matched,
         })
 
@@ -198,13 +220,20 @@ def position_summary(state: dict, current_price: float | None) -> dict:
 def cash_balance(deposits_total: float, transactions: list[dict], fx=None) -> float:
     """Cash = deposits − (buys + fees) + (sells − fees).
 
-    `fx` (optional) maps a transaction's currency to a portfolio-currency
-    rate: fx(currency) -> float. Used when a portfolio holds instruments
-    traded in another currency (e.g. a PLN-quoted stock in a EUR portfolio) —
-    the caller supplies current rates, so the result is an approximation of
-    the broker's actual settlement-time conversion. No fx = everything 1:1."""
+    A transaction carrying `cash_amount` (the EXACT portfolio-currency amount
+    the broker settled, fees included — known for imported trades) uses it
+    as-is. Otherwise `fx` (optional) maps the transaction's currency to a
+    portfolio-currency rate: fx(currency) -> float. Used when a portfolio
+    holds instruments traded in another currency (e.g. a PLN-quoted stock in
+    a EUR portfolio) — the caller supplies current rates, so that path is an
+    approximation of the broker's actual settlement-time conversion.
+    No fx = everything 1:1."""
     cash = deposits_total
     for t in transactions:
+        exact = t.get("cash_amount")
+        if exact is not None:
+            cash += -exact if t["type"] == "BUY" else exact
+            continue
         rate = fx(t.get("currency")) if fx is not None else 1.0
         fee = t.get("fee", 0.0) or 0.0
         if t["type"] == "BUY":

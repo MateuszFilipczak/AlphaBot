@@ -96,11 +96,16 @@ export default function PriceChart({ candles, markers, currentPrice, mode, curre
 
     const updateDots = () => {
       const ts = chart.timeScale();
+      // plot-area bounds: the overlay divs aren't clipped by the chart canvas,
+      // so a dot panned/scrolled out of the pane must vanish, not float over
+      // the page (pane = container minus right price scale & bottom time axis)
+      const paneW = ts.width();
+      const paneH = el.clientHeight - ts.height();
       const stack = new Map(); // "time|type" → how many dots already placed
       const next = [];
       for (const m of visible) {
         const x = ts.timeToCoordinate(m.time);
-        if (x === null) continue;
+        if (x === null || x < 0 || x > paneW) continue;
         const candle = candleByTime.get(m.time);
         const anchor =
           mode === "candles" ? (m.type === "BUY" ? candle.low : candle.high) : candle.close;
@@ -110,8 +115,13 @@ export default function PriceChart({ candles, markers, currentPrice, mode, curre
         const key = `${m.time}|${m.type}`;
         const n = stack.get(key) ?? 0;
         stack.set(key, n + 1);
-        const offset = 14 + n * 14;
-        next.push({ x, y: m.type === "BUY" ? y + offset : y - offset, marker: m });
+        // line mode: Revolut-style, the dot sits ON the line (only same-day
+        // duplicates step off it); candle mode keeps the gap below/above the
+        // wick so dots don't cover the candle itself
+        const offset = (mode === "candles" ? 14 : 0) + n * 14;
+        const yDot = m.type === "BUY" ? y + offset : y - offset;
+        if (yDot < 0 || yDot > paneH) continue;
+        next.push({ x, y: yDot, marker: m });
       }
       setDots(next);
     };

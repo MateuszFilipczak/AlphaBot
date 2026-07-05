@@ -11,9 +11,10 @@ from fastapi.testclient import TestClient
 
 import db
 import web.server as server
-from importers.xtb import map_ticker, parse_xtb_export
+from importers.xtb import map_ticker, parse_xtb_export, rate_is_unity
 
 REAL_EXPORT = Path("/Users/mateusz/Downloads/54998934/export_nowy.xlsx")
+REAL_EXPORT_PLN = Path("/Users/mateusz/Downloads/50906523/PLN_50906523_2006-01-01_2026-07-04.xlsx")
 
 
 def build_xtb_xlsx(cash_rows, closed_rows=()):
@@ -52,18 +53,42 @@ SAMPLE_ROWS = [
     # Excel serial date instead of a datetime (46174 = 2026-06-01)
     ["Stock purchase", "AAPL.US", "Apple", 46174.44,
      -371.0, "1284805999", "OPEN BUY 2 @ 185.50", "My Trades"],
+    # both sale spellings appear in real exports
     ["Stock sale", "AAPL.US", "Apple", datetime(2026, 6, 2, 15, 0),
      190.0, "1290000001", "CLOSE BUY 1 @ 190.00", "My Trades"],
+    ["Stock sell", "AAPL.US", "Apple", datetime(2026, 6, 3, 15, 0),
+     95.5, "1290000002", "CLOSE BUY 0.5/1 @ 191.00", "My Trades"],
     ["Deposit", "", "", datetime(2026, 5, 28, 17, 16),
      492.84, "1284343298", "Pekao S.A. deposit, id=33282295", "My Trades"],
     ["Transfer", "", "", datetime(2026, 6, 1, 10, 35),
      126.99, "1288169899", "Currency conversion, PLN to EUR from TA: 1 to: 2", "My Trades"],
-    # amount clearly off shares×price → row-level warning
+    # amount ≉ shares×price → implied FX rate ~1.4 (verdict belongs to preview)
     ["Stock purchase", "SXR8.DE", "Core S&P 500", datetime(2026, 5, 29, 7, 6),
      -100.0, "1284806253", "OPEN BUY 0.1021 @ 699.50", "My Trades"],
     ["Dividend", "KO.US", "Coca-Cola", datetime(2026, 5, 20, 12, 0),
      1.23, "1280000000", "KO.US USD 0.485/ SHR", "My Trades"],
+    ["Withholding tax", "KO.US", "Coca-Cola", datetime(2026, 5, 20, 12, 0),
+     -0.19, "1280000001", "KO.US USD WHT 15%", "My Trades"],
+    ["Free funds interest", "", "", datetime(2026, 6, 3, 6, 0),
+     0.31, "1290000010", "Free-funds Interest 2026-05", "My Trades"],
+    ["Free funds interest tax", "", "", datetime(2026, 6, 3, 6, 0),
+     -0.06, "1290000011", "Free-funds Interest Tax 2026-05", "My Trades"],
+    # outgoing conversion (negative) — direction must come from the sign
+    ["Transfer", "", "", datetime(2026, 6, 4, 10, 0),
+     -540.42, "1290000012", "Currency conversion, PLN to EUR from TA: 1 to: 2", "My Trades"],
+    ["Withdrawal", "", "", datetime(2026, 6, 5, 10, 0),
+     -64.85, "1290000013", "Withdrawal from 50906523", "My Trades"],
+    ["Subaccount transfer", "", "", datetime(2026, 3, 5, 10, 0),
+     508.21, "1290000014", "Transfer from 54388868 to 50906523", "My Trades"],
+    ["Rights issue", "ORSTED.DK", "Orsted", datetime(2025, 9, 18, 10, 0),
+     18.69, "1290000015", "ORSTED.DK DKK 93.1800/ SHR", "My Trades"],
+    ["Dividend zero", "", "", datetime(2026, 5, 20, 12, 0),
+     1.0, "1290000016", "unsupported type row", "My Trades"],
 ]
+
+# ops the parser should emit from SAMPLE_ROWS (the "Dividend zero" row is an
+# unsupported type and only produces a file-level warning)
+SAMPLE_OPS = 16
 
 
 # ---- Parser -----------------------------------------------------------------
@@ -71,21 +96,28 @@ SAMPLE_ROWS = [
 def test_parser_on_synthetic_export():
     result = parse_xtb_export(build_xtb_xlsx(SAMPLE_ROWS))
     ops = result["operations"]
+    assert len(ops) == SAMPLE_OPS
     by_kind = {}
     for op in ops:
         by_kind.setdefault(op["kind"], []).append(op)
 
     assert len(by_kind["BUY"]) == 4
-    assert len(by_kind["SELL"]) == 1
+    assert len(by_kind["SELL"]) == 2  # "Stock sale" + "Stock sell"
     assert len(by_kind["DEPOSIT"]) == 1
-    assert len(by_kind["TRANSFER"]) == 1
+    assert len(by_kind["TRANSFER"]) == 2
+    assert len(by_kind["DIVIDEND"]) == 1
+    assert len(by_kind["TAX"]) == 2  # WHT + interest tax
+    assert len(by_kind["INTEREST"]) == 1
+    assert len(by_kind["WITHDRAWAL"]) == 1
+    assert len(by_kind["SUBTRANSFER"]) == 1
+    assert len(by_kind["RIGHTS"]) == 1
 
     egln = next(o for o in ops if o["external_id"] == "1288170641")
     assert egln["ticker"] == "EGLN.L"  # .UK → .L
     assert egln["shares"] == pytest.approx(0.8942)
     assert egln["price"] == pytest.approx(75.06)
     assert egln["amount"] == pytest.approx(67.12)  # string amount coerced
-    assert egln["warning"] is None
+    assert rate_is_unity(egln["implied_rate"], egln["amount"])
 
     partial = next(o for o in ops if o["external_id"] == "1284805510")
     assert partial["shares"] == pytest.approx(0.228)  # NOT 1.228
@@ -94,26 +126,67 @@ def test_parser_on_synthetic_export():
     assert serial["date"] == "2026-06-01"  # 46174.44 days since 1899-12-30
     assert serial["ticker"] == "AAPL"  # .US → no suffix
 
-    sale = next(o for o in ops if o["kind"] == "SELL")
-    assert (sale["shares"], sale["price"]) == (1, 190.0)
+    sales = by_kind["SELL"]
+    assert (sales[0]["shares"], sales[0]["price"]) == (1, 190.0)
+    assert (sales[1]["shares"], sales[1]["price"]) == (0.5, 191.0)  # partial close
 
-    transfer = next(o for o in ops if o["kind"] == "TRANSFER")
-    assert transfer["note"] == "przewalutowanie z PLN"
-    assert transfer["amount"] == pytest.approx(126.99)
+    # implied FX rate reported, judged by the preview (needs instrument currency)
+    fx_buy = next(o for o in ops if o["external_id"] == "1284806253")
+    assert fx_buy["implied_rate"] == pytest.approx(1.4, abs=0.01)
+    assert not rate_is_unity(fx_buy["implied_rate"], fx_buy["amount"])
+    assert fx_buy["warning"] is None
 
-    mismatch = next(o for o in ops if o["external_id"] == "1284806253")
-    assert mismatch["warning"] is not None  # 100.0 vs 0.1021×699.50 = 71.42
-
-    # unsupported Dividend row → file-level warning, not an operation
-    assert all(o["external_id"] != "1280000000" for o in ops)
-    assert any("Dividend" in w for w in result["warnings"])
+    # unsupported type row → file-level warning, not an operation
+    assert all(o["external_id"] != "1290000016" for o in ops)
+    assert any("Dividend zero" in w for w in result["warnings"])
 
 
-def test_amount_within_tolerance_no_warning():
+def test_cash_flows_direction_and_notes():
+    ops = parse_xtb_export(build_xtb_xlsx(SAMPLE_ROWS))["operations"]
+    by_id = {o["external_id"]: o for o in ops}
+
+    transfer_in = by_id["1288169899"]
+    assert (transfer_in["kind"], transfer_in["cash_type"]) == ("TRANSFER", "DEPOSIT")
+    assert transfer_in["note"] == "przewalutowanie PLN→EUR"
+
+    transfer_out = by_id["1290000012"]  # negative amount → outflow
+    assert (transfer_out["kind"], transfer_out["cash_type"]) == ("TRANSFER", "WITHDRAWAL")
+    assert transfer_out["amount"] == pytest.approx(540.42)
+
+    dividend = by_id["1280000000"]
+    assert (dividend["kind"], dividend["cash_type"]) == ("DIVIDEND", "DEPOSIT")
+    assert dividend["note"] == "dywidenda KO"
+    assert dividend["ticker"] == "KO"  # display only
+
+    wht = by_id["1280000001"]
+    assert (wht["kind"], wht["cash_type"]) == ("TAX", "WITHDRAWAL")
+    assert wht["note"] == "podatek u źródła KO"
+
+    interest = by_id["1290000010"]
+    assert (interest["kind"], interest["cash_type"]) == ("INTEREST", "DEPOSIT")
+    assert interest["note"] == "odsetki od wolnych środków 2026-05"
+
+    interest_tax = by_id["1290000011"]
+    assert (interest_tax["kind"], interest_tax["cash_type"]) == ("TAX", "WITHDRAWAL")
+    assert interest_tax["note"] == "podatek od odsetek 2026-05"
+
+    withdrawal = by_id["1290000013"]
+    assert (withdrawal["kind"], withdrawal["cash_type"]) == ("WITHDRAWAL", "WITHDRAWAL")
+
+    sub = by_id["1290000014"]
+    assert (sub["kind"], sub["cash_type"]) == ("SUBTRANSFER", "DEPOSIT")
+    assert sub["note"] == "transfer między subkontami"
+
+    rights = by_id["1290000015"]
+    assert (rights["kind"], rights["cash_type"]) == ("RIGHTS", "DEPOSIT")
+    assert rights["note"] == "prawa poboru ORSTED.CO"  # .DK → .CO
+
+
+def test_amount_within_tolerance_counts_as_unity():
     rows = [["Stock purchase", "VWCE.DE", "x", datetime(2026, 1, 2),
              -163.9, "1", "OPEN BUY 1 @ 163.48", "My Trades"]]  # 0.26% off
     op = parse_xtb_export(build_xtb_xlsx(rows))["operations"][0]
-    assert op["warning"] is None
+    assert rate_is_unity(op["implied_rate"], op["amount"])
 
 
 def test_closed_positions_with_rows_warns():
@@ -154,9 +227,35 @@ def test_parser_on_real_export():
     assert kinds.count("DEPOSIT") == 4
     assert kinds.count("TRANSFER") == 3
     assert result["warnings"] == []
-    assert all(o["warning"] is None for o in ops)  # amounts all reconcile
+    # EUR account, EUR/EUR-quoted instruments: every amount reconciles at rate 1
+    assert all(rate_is_unity(o["implied_rate"], o["amount"]) for o in ops if o["kind"] == "BUY")
     partial = next(o for o in ops if o["external_id"] == "1284805510")
     assert partial["shares"] == pytest.approx(0.228)
+
+
+@pytest.mark.skipif(not REAL_EXPORT_PLN.exists(), reason="real PLN XTB export not present")
+def test_parser_on_real_pln_export():
+    result = parse_xtb_export(REAL_EXPORT_PLN.read_bytes())
+    ops = result["operations"]
+    kinds = [o["kind"] for o in ops]
+    assert kinds.count("BUY") == 41
+    assert kinds.count("SELL") == 30  # "Stock sell" spelling
+    assert kinds.count("DEPOSIT") == 13
+    assert kinds.count("WITHDRAWAL") == 3
+    assert kinds.count("TRANSFER") == 3
+    assert kinds.count("DIVIDEND") == 6
+    assert kinds.count("TAX") == 18  # 6 WHT + 12 interest tax
+    assert kinds.count("INTEREST") == 12
+    assert kinds.count("RIGHTS") == 6
+    assert kinds.count("SUBTRANSFER") == 4
+
+    # outgoing PLN→EUR conversions: negative amounts → withdrawals
+    assert all(o["cash_type"] == "WITHDRAWAL" for o in ops if o["kind"] == "TRANSFER")
+    # foreign instruments (EUR/DKK) on the PLN account: implied rate ≠ 1
+    orsted = [o for o in ops if o["kind"] == "SELL" and o["xtb_ticker"] == "ORSTED.DK"]
+    assert orsted and all(not rate_is_unity(o["implied_rate"], o["amount"]) for o in orsted)
+    # non-empty Closed Positions sheet is reported, not imported
+    assert any("Closed Positions" in w for w in result["warnings"])
 
 
 # ---- API: preview + commit ---------------------------------------------------
@@ -198,25 +297,59 @@ def test_preview_commit_and_reimport_flow(client, portfolio_id):
     preview = upload(client, portfolio_id, content)
     assert preview.status_code == 200, preview.text
     ops = preview.json()["operations"]
-    assert len(ops) == 7
+    assert len(ops) == SAMPLE_OPS
     assert all(op["already_exists"] is False for op in ops)
-    assert all(op["ticker_verified"] is True for op in ops if op["ticker"])
+    trades = [op for op in ops if op["kind"] in ("BUY", "SELL")]
+    assert all(op["ticker_verified"] is True for op in trades)
+    # cash flows carry a ticker only for display — never verified
+    assert all(op["ticker_verified"] is None for op in ops if op not in trades)
+
+    # instrument currency == portfolio currency (EUR fixture) + rate 1.4 →
+    # a real mismatch warning; the same-currency rows stay clean
+    fx_buy = next(op for op in ops if op["external_id"] == "1284806253")
+    assert fx_buy["warning"] and "nie zgadza się" in fx_buy["warning"]
+    assert all(op["warning"] is None for op in trades if op is not fx_buy)
 
     commit = client.post(
         f"/api/portfolios/{portfolio_id}/import/xtb/commit",
         json={"operations": ops},
     )
     assert commit.status_code == 201, commit.text
-    assert commit.json() == {"imported": 7, "skipped_duplicates": 0}
+    assert commit.json() == {"imported": SAMPLE_OPS, "skipped_duplicates": 0}
 
-    # engine state after import: buys minus the 1-share sale
+    # engine state after import: 2 AAPL bought, 1 + 0.5 sold
     summary = client.get(f"/api/portfolios/{portfolio_id}/summary").json()
     tickers = {p["ticker"]: p for p in summary["positions"]}
-    assert tickers["AAPL"]["shares"] == pytest.approx(1.0)  # 2 bought, 1 sold
+    assert tickers["AAPL"]["shares"] == pytest.approx(0.5)
     assert tickers["EGLN.L"]["shares"] == pytest.approx(0.8942)
+
     deposits = client.get(f"/api/portfolios/{portfolio_id}/deposits").json()
-    assert len(deposits) == 2  # Deposit + Transfer
-    assert any(d["note"] == "przewalutowanie z PLN" for d in deposits)
+    assert len(deposits) == 10  # every non-trade kind lands in deposits
+    flows = {(d["note"], d["type"]) for d in deposits}
+    # both conversion directions share the note — the type tells them apart
+    assert ("przewalutowanie PLN→EUR", "DEPOSIT") in flows
+    assert ("przewalutowanie PLN→EUR", "WITHDRAWAL") in flows
+    assert ("dywidenda KO", "DEPOSIT") in flows
+    assert ("podatek u źródła KO", "WITHDRAWAL") in flows
+    assert ("odsetki od wolnych środków 2026-05", "DEPOSIT") in flows
+    assert ("podatek od odsetek 2026-05", "WITHDRAWAL") in flows
+    summary2 = client.get(f"/api/portfolios/{portfolio_id}/summary").json()
+    # rights issues (RETURN) are in the P&L base (not profit) but NOT in the
+    # user-facing "suma wpłat" — they're not user-deposited capital
+    non_profit_base = 492.84 + 126.99 - 540.42 - 64.85 + 508.21 + 18.69
+    assert summary2["deposited"] == pytest.approx(non_profit_base)
+    assert summary2["contributed_in"] == pytest.approx(492.84 + 126.99 + 508.21)
+    assert summary2["contributed_out"] == pytest.approx(540.42 + 64.85)
+    contributed = non_profit_base
+    # …while cash additionally includes investment income and uses the EXACT
+    # imported trade amounts (not shares×price×current FX)
+    income = 1.23 - 0.19 + 0.31 - 0.06
+    trades_cash = -67.12 - 37.26 - 371.0 + 190.0 + 95.5 - 100.0
+    assert summary2["cash"] == pytest.approx(contributed + income + trades_cash)
+    # lifetime P&L is money-weighted: value + cash − contributed capital
+    assert summary2["total_pnl"] == pytest.approx(
+        summary2["cash"] + summary2["positions_value"] - contributed
+    )
 
     # re-import of the same file: everything flagged, commit imports nothing
     preview2 = upload(client, portfolio_id, content)
@@ -226,8 +359,8 @@ def test_preview_commit_and_reimport_flow(client, portfolio_id):
         f"/api/portfolios/{portfolio_id}/import/xtb/commit",
         json={"operations": ops2},
     )
-    assert commit2.json() == {"imported": 0, "skipped_duplicates": 7}
-    assert len(client.get(f"/api/portfolios/{portfolio_id}/deposits").json()) == 2
+    assert commit2.json() == {"imported": 0, "skipped_duplicates": SAMPLE_OPS}
+    assert len(client.get(f"/api/portfolios/{portfolio_id}/deposits").json()) == 10
 
 
 def test_unverified_ticker_flagged_in_preview(client, portfolio_id):
@@ -256,8 +389,45 @@ def test_commit_imported_transactions_use_portfolio_currency(client, portfolio_i
     client.post(f"/api/portfolios/{portfolio_id}/import/xtb/commit",
                 json={"operations": ops})
     txns = db.get_transactions(portfolio_id, "EGLN.L")
-    # GBp-quoted LSE instrument: the file's price stays, currency is the
-    # portfolio's (XTB charged the account currency) — never rescaled
+    # amount ≈ shares×price → the price was paid in the account currency;
+    # the file's price stays as-is (never rescaled, also for GBp listings)
     assert txns[0]["price"] == pytest.approx(75.06)
     assert txns[0]["currency"] == "EUR"
     assert txns[0]["external_id"] == "1288170641"
+
+
+def test_preview_flags_probable_manual_duplicates(client, portfolio_id):
+    """Transactions typed in by hand have no external_id — the preview must
+    still spot them by ticker+date+shares+price, or importing the broker's
+    full history doubles every manually-entered position."""
+    client.post(f"/api/portfolios/{portfolio_id}/deposits",
+                json={"amount": 1000, "date": "2026-05-01"})
+    client.post(f"/api/portfolios/{portfolio_id}/transactions", json={
+        "ticker": "VWCE.DE", "type": "BUY", "shares": 0.228, "price": 163.40,
+        "date": "2026-05-29",
+    })
+    ops = upload(client, portfolio_id, build_xtb_xlsx(SAMPLE_ROWS)).json()["operations"]
+    partial = next(o for o in ops if o["external_id"] == "1284805510")
+    assert partial["similar_exists"] is True  # same ticker/date/shares/price
+    other = next(o for o in ops if o["external_id"] == "1288170641")
+    assert other["similar_exists"] is False
+
+
+def test_commit_foreign_instrument_keeps_instrument_currency(client):
+    """EUR-quoted instrument bought on a PLN account: amount = shares×price×FX,
+    so the transaction must be recorded in the instrument's currency (EUR) —
+    recording 1204.40 as PLN would wreck the cost basis."""
+    r = client.post("/api/portfolios", json={"name": "Import PLN", "currency": "PLN"})
+    pid = r.json()["id"]
+    try:
+        rows = [["Stock purchase", "SXRV.DE", "NASDAQ 100", datetime(2026, 3, 2),
+                 -247.29, "77", "OPEN BUY 0.0483 @ 1204.4", "My Trades"]]  # rate ~4.25
+        ops = upload(client, pid, build_xtb_xlsx(rows)).json()["operations"]
+        # known instrument currency (EUR fixture) ≠ PLN explains the rate: no warning
+        assert ops[0]["warning"] is None
+        client.post(f"/api/portfolios/{pid}/import/xtb/commit", json={"operations": ops})
+        txn = db.get_transactions(pid, "SXRV.DE")[0]
+        assert txn["price"] == pytest.approx(1204.4)
+        assert txn["currency"] == "EUR"
+    finally:
+        client.delete(f"/api/portfolios/{pid}?force=true")

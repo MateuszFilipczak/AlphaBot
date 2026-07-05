@@ -106,7 +106,8 @@ def init_db():
                 date TEXT NOT NULL,
                 note TEXT,
                 currency TEXT,
-                external_id TEXT
+                external_id TEXT,
+                cash_amount REAL
             )
         """)
         # `deposits` holds all cash flows in/out of a portfolio. Amounts are
@@ -122,7 +123,12 @@ def init_db():
                 currency TEXT,
                 type TEXT NOT NULL DEFAULT 'DEPOSIT' CHECK (type IN ('DEPOSIT', 'WITHDRAWAL')),
                 note TEXT,
-                external_id TEXT
+                external_id TEXT,
+                -- CONTRIBUTION (capital in/out) | INCOME (dividends, interest,
+                -- their taxes) | RETURN (rights-issue proceeds: not profit,
+                -- but not user-deposited capital either). No CHECK on purpose:
+                -- this enum already grew once and SQLite can't alter a CHECK.
+                category TEXT NOT NULL DEFAULT 'CONTRIBUTION'
             )
         """)
         conn.execute("""
@@ -166,6 +172,11 @@ def init_db():
         # same file a no-op instead of a duplication.
         if "external_id" not in txn_cols:
             conn.execute("ALTER TABLE transactions ADD COLUMN external_id TEXT")
+        # cash_amount: the trade's EXACT portfolio-currency cash flow (fees
+        # included), known for imports. NULL = derive shares×price at the
+        # current FX rate (the pre-import approximation for manual entries).
+        if "cash_amount" not in txn_cols:
+            conn.execute("ALTER TABLE transactions ADD COLUMN cash_amount REAL")
 
         # deposits.type/note arrived with withdrawals support — add to older DBs
         # (existing rows default to DEPOSIT, which is what they all were).
@@ -176,6 +187,48 @@ def init_db():
             conn.execute("ALTER TABLE deposits ADD COLUMN note TEXT")
         if "external_id" not in dep_cols:
             conn.execute("ALTER TABLE deposits ADD COLUMN external_id TEXT")
+        # category separates contributed capital (deposits/withdrawals/
+        # transfers) from investment income (dividends, interest, their
+        # taxes) and capital returns (rights issues) — income is P&L, not
+        # capital, so it must not skew "wpłacono łącznie" or the profit pct.
+        if "category" not in dep_cols:
+            conn.execute("""ALTER TABLE deposits ADD COLUMN category TEXT NOT NULL
+                            DEFAULT 'CONTRIBUTION'""")
+
+        # earlier builds created category with CHECK(... IN (CONTRIBUTION,
+        # INCOME)) — too narrow once RETURN arrived, and SQLite can't drop a
+        # CHECK: rebuild the table once without it (ids preserved; the
+        # external-id unique index is recreated below, after _migrate_legacy)
+        dep_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='deposits'"
+        ).fetchone()["sql"]
+        if "CHECK (category" in dep_sql:
+            conn.execute("""
+                CREATE TABLE deposits_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    amount REAL NOT NULL CHECK (amount > 0),
+                    date TEXT NOT NULL,
+                    portfolio_id INTEGER REFERENCES portfolios(id),
+                    currency TEXT,
+                    type TEXT NOT NULL DEFAULT 'DEPOSIT' CHECK (type IN ('DEPOSIT', 'WITHDRAWAL')),
+                    note TEXT,
+                    external_id TEXT,
+                    category TEXT NOT NULL DEFAULT 'CONTRIBUTION'
+                )
+            """)
+            conn.execute("""INSERT INTO deposits_new (id, amount, date, portfolio_id, currency, type, note, external_id, category)
+                            SELECT id, amount, date, portfolio_id, currency, type, note, external_id, category FROM deposits""")
+            old_seq = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'deposits'"
+            ).fetchone()
+            conn.execute("DROP TABLE deposits")
+            conn.execute("ALTER TABLE deposits_new RENAME TO deposits")
+            if old_seq is not None:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'deposits'")
+                conn.execute(
+                    "INSERT INTO sqlite_sequence (name, seq) VALUES ('deposits', ?)",
+                    (old_seq["seq"],),
+                )
 
         # Seed the three starter portfolios ONLY on a fresh DB — portfolios are
         # user-managed now, so a deleted one must not resurrect on next start.
@@ -332,12 +385,13 @@ def delete_portfolio_cascade(portfolio_id: int) -> tuple[int, int]:
 def add_transaction(portfolio_id: int, ticker: str, type_: str, shares: float,
                     price: float, fee: float = 0.0, date: str | None = None,
                     note: str | None = None, currency: str | None = None,
-                    external_id: str | None = None) -> int:
+                    external_id: str | None = None,
+                    cash_amount: float | None = None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO transactions (portfolio_id, ticker, type, shares, price, fee, date, note, currency, external_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (portfolio_id, ticker.upper(), type_, shares, price, fee, date or _now(), note, currency, external_id),
+            """INSERT INTO transactions (portfolio_id, ticker, type, shares, price, fee, date, note, currency, external_id, cash_amount)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (portfolio_id, ticker.upper(), type_, shares, price, fee, date or _now(), note, currency, external_id, cash_amount),
         )
         return cur.lastrowid
 
@@ -455,10 +509,13 @@ def record_equity_snapshot(total_cost: float, total_value: float, drawdown_pct: 
 
 def add_deposit(amount: float, portfolio_id: int | None = None, date: str | None = None,
                 type_: str = "DEPOSIT", note: str | None = None,
-                external_id: str | None = None) -> int:
+                external_id: str | None = None,
+                category: str = "CONTRIBUTION") -> int:
     """Records a cash flow (DEPOSIT or WITHDRAWAL, amount always positive) in
-    the portfolio's own currency. Defaults to the USD portfolio so the legacy
-    CLI (`python main.py deposit 250`) keeps working."""
+    the portfolio's own currency. category CONTRIBUTION = capital in/out,
+    INCOME = investment proceeds (dividends, interest…) — cash either way,
+    but only contributions count as deposited capital. Defaults to the USD
+    portfolio so the legacy CLI (`python main.py deposit 250`) keeps working."""
     if portfolio_id is None:
         portfolio_id = get_usd_portfolio_id()
     with get_conn() as conn:
@@ -466,9 +523,9 @@ def add_deposit(amount: float, portfolio_id: int | None = None, date: str | None
             "SELECT currency FROM portfolios WHERE id = ?", (portfolio_id,)
         ).fetchone()["currency"]
         cur = conn.execute(
-            """INSERT INTO deposits (amount, date, portfolio_id, currency, type, note, external_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (amount, date or _now(), portfolio_id, currency, type_, note, external_id),
+            """INSERT INTO deposits (amount, date, portfolio_id, currency, type, note, external_id, category)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (amount, date or _now(), portfolio_id, currency, type_, note, external_id, category),
         )
         return cur.lastrowid
 
@@ -519,9 +576,25 @@ def get_external_ids(portfolio_id: int) -> set[str]:
 
 
 def get_total_deposited(portfolio_id: int | None = None) -> float:
-    """Net contributed capital: deposits minus withdrawals."""
+    """Net non-profit capital: deposits minus withdrawals over CONTRIBUTION
+    and RETURN rows — everything except investment income. This is the base
+    the lifetime P&L formula subtracts, so INCOME (and only INCOME) lands in
+    profit; RETURN (rights issues) is excluded from profit here while still
+    staying out of the user-facing "suma wpłat" (get_contribution_totals)."""
     if portfolio_id is None:
         portfolio_id = get_usd_portfolio_id()
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(CASE WHEN type = 'WITHDRAWAL' THEN -amount ELSE amount END), 0) AS total
+               FROM deposits WHERE portfolio_id = ? AND category != 'INCOME'""",
+            (portfolio_id,),
+        ).fetchone()
+        return float(row["total"])
+
+
+def get_cash_flows_total(portfolio_id: int) -> float:
+    """Signed sum of EVERY cash flow (contributions and income alike) — the
+    starting point for the portfolio's cash balance."""
     with get_conn() as conn:
         row = conn.execute(
             """SELECT COALESCE(SUM(CASE WHEN type = 'WITHDRAWAL' THEN -amount ELSE amount END), 0) AS total
@@ -529,6 +602,23 @@ def get_total_deposited(portfolio_id: int | None = None) -> float:
             (portfolio_id,),
         ).fetchone()
         return float(row["total"])
+
+
+def get_contribution_totals(portfolio_id: int) -> tuple[float, float]:
+    """(inflows, outflows) of contributed capital: bank deposits + transfers
+    in vs withdrawals + transfers out. Investment income is excluded from
+    both. The inflow total is also the stable denominator for the profit
+    percentage — net contributed capital can be near zero (or negative) on
+    accounts that withdrew their gains."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT
+                 COALESCE(SUM(CASE WHEN type = 'DEPOSIT' THEN amount END), 0) AS inflow,
+                 COALESCE(SUM(CASE WHEN type = 'WITHDRAWAL' THEN amount END), 0) AS outflow
+               FROM deposits WHERE portfolio_id = ? AND category = 'CONTRIBUTION'""",
+            (portfolio_id,),
+        ).fetchone()
+        return float(row["inflow"]), float(row["outflow"])
 
 
 init_db()
