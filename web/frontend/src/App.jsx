@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useNavigate, useSearchParams } from "react-router-dom";
 import { deletePortfolio, getPortfolios, getSummary, renamePortfolio } from "./api.js";
 import { fmtMoney, pnlClass } from "./format.js";
@@ -7,7 +7,56 @@ import DepositModal from "./components/DepositModal.jsx";
 import PortfolioModal from "./components/PortfolioModal.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
 import RowMenu from "./components/RowMenu.jsx";
-import { ImportButton } from "./components/ImportModal.jsx";
+import { useXtbImport } from "./components/ImportModal.jsx";
+
+// Split action button: primary "+ Transakcja" one click, caret opens the rest
+// (Wpłata / Wypłata / Import). Menu closes on outside click or Escape.
+function AddActions({ onTransaction, onDeposit, onWithdraw, onImport, importing }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pick = (fn) => () => {
+    setOpen(false);
+    fn();
+  };
+
+  return (
+    <div className="split-wrap" ref={ref}>
+      <button className="btn primary split-main" onClick={onTransaction}>
+        + Transakcja
+      </button>
+      <button
+        className="btn primary split-caret"
+        aria-label="Więcej akcji"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        ▾
+      </button>
+      {open && (
+        <div className="menu-pop act-menu">
+          <button onClick={pick(onDeposit)}>+ Wpłata</button>
+          <button onClick={pick(onWithdraw)}>− Wypłata</button>
+          <button onClick={pick(onImport)} disabled={importing}>
+            {importing ? "Wczytywanie…" : "Import z XTB (xlsx)"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Fixed top-level currency tabs — always visible. GBP appears only when a
 // GBP portfolio actually exists.
@@ -108,6 +157,7 @@ export default function App() {
   const [refreshTick, setRefreshTick] = useState(0);
   const navigate = useNavigate();
 
+  const bumpRefresh = () => setRefreshTick((t) => t + 1);
   const loadPortfolios = () => getPortfolios().then(setPortfolios).catch(console.error);
   // refreshTick in deps: every write (deposit, transaction…) refreshes the
   // txn/deposit counts too — the delete flow depends on them being current
@@ -126,6 +176,9 @@ export default function App() {
   // no valid ?p → fall back to the currency's first portfolio (if any)
   const portfolio = urlPortfolio ?? currencyPortfolios[0] ?? null;
   const portfolioId = portfolio?.id ?? null;
+
+  // XTB import wired into the header's split-button menu (see AddActions)
+  const xtb = useXtbImport({ portfolio, onImported: bumpRefresh });
 
   const currencies = [
     ...FIXED_CURRENCIES,
@@ -201,16 +254,13 @@ export default function App() {
           </nav>
           {portfolio && (
             <div className="actions">
-              <ImportButton portfolio={portfolio} onImported={() => setRefreshTick((t) => t + 1)} />
-              <button className="btn" onClick={() => setCashModal("deposit")}>
-                + Wpłata
-              </button>
-              <button className="btn" onClick={() => setCashModal("withdraw")}>
-                − Wypłata
-              </button>
-              <button className="btn primary" onClick={() => setTxModal({})}>
-                + Transakcja
-              </button>
+              <AddActions
+                onTransaction={() => setTxModal({})}
+                onDeposit={() => setCashModal("deposit")}
+                onWithdraw={() => setCashModal("withdraw")}
+                onImport={xtb.pickFile}
+                importing={xtb.uploading}
+              />
             </div>
           )}
         </header>
@@ -325,6 +375,7 @@ export default function App() {
             }}
           />
         )}
+        {portfolio && xtb.overlay}
       </div>
     </AppCtx.Provider>
   );

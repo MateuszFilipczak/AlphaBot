@@ -15,20 +15,17 @@ const KIND_LABELS = {
   RIGHTS: "Prawa poboru",
 };
 
-// "Importuj ▾" button for the portfolio header: a source menu (XTB for now),
-// a hidden file input, and the preview modal. Nothing is persisted until the
-// user confirms the selection in the preview.
-export function ImportButton({ portfolio, onImported }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+// XTB import flow decoupled from any particular trigger: gives you a file
+// picker opener plus the overlay (hidden input + error/preview modals) to
+// render anywhere. Lets the header expose "Import" from a shared menu instead
+// of its own button. Nothing is persisted until the user confirms the preview.
+export function useXtbImport({ portfolio, onImported }) {
   const [preview, setPreview] = useState(null); // parse result from the server
   const [error, setError] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
 
-  const pickFile = () => {
-    setMenuOpen(false);
-    fileRef.current?.click();
-  };
+  const pickFile = () => fileRef.current?.click();
 
   const onFile = async (e) => {
     const file = e.target.files?.[0];
@@ -45,20 +42,8 @@ export function ImportButton({ portfolio, onImported }) {
     }
   };
 
-  return (
-    <span className="import-wrap">
-      <button className="btn" onClick={() => setMenuOpen((o) => !o)} disabled={uploading}>
-        {uploading ? "Wczytywanie…" : "Importuj ▾"}
-      </button>
-      {menuOpen && (
-        <>
-          {/* click-away layer under the menu */}
-          <div className="import-clickaway" onMouseDown={() => setMenuOpen(false)} />
-          <div className="menu-pop import-menu">
-            <button onClick={pickFile}>XTB (xlsx)</button>
-          </div>
-        </>
-      )}
+  const overlay = (
+    <>
       <input
         ref={fileRef}
         type="file"
@@ -66,9 +51,7 @@ export function ImportButton({ portfolio, onImported }) {
         style={{ display: "none" }}
         onChange={onFile}
       />
-      {error && (
-        <ErrorModal message={error} onClose={() => setError(null)} />
-      )}
+      {error && <ErrorModal message={error} onClose={() => setError(null)} />}
       {preview && (
         <ImportPreviewModal
           portfolio={portfolio}
@@ -80,8 +63,10 @@ export function ImportButton({ portfolio, onImported }) {
           }}
         />
       )}
-    </span>
+    </>
   );
+
+  return { pickFile, uploading, overlay };
 }
 
 function ErrorModal({ message, onClose }) {
