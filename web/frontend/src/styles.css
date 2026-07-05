@@ -286,6 +286,103 @@ h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
 
 .loading { color: var(--muted); padding: 32px; text-align: center; }
 
+/* ---- Chart lab (/lab) ---- */
+.lab h1 { font-size: 20px; margin: 6px 0 16px; }
+.lab-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+@media (max-width: 820px) { .lab-grid { grid-template-columns: 1fr; } }
+.lab-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 12px 14px;
+}
+.lab-card h3 { margin: 0 0 4px; font-size: 14.5px; }
+.lab-desc { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; min-height: 32px; }
+.lab-box { position: relative; height: 260px; overflow: hidden; }
+.lab-glow { filter: drop-shadow(0 0 7px rgba(57, 135, 229, 0.55)); }
+.lab-glow-soft { filter: drop-shadow(0 0 5px rgba(57, 135, 229, 0.35)); }
+.pulse-dot {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  transform: translate(-50%, -50%); pointer-events: none; z-index: 5;
+}
+.pulse-dot::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  border: 2px solid currentColor; color: inherit; opacity: 0.7;
+  background: transparent; border-color: inherit;
+  animation: pulse-ring 1.6s ease-out infinite;
+  border-color: currentColor;
+}
+.pulse-dot { color: var(--accent); }
+@keyframes pulse-ring {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  80% { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+.lab code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
+
+/* ---- Marker style proposals (lab round 3) ---- */
+.mk { position: absolute; transform: translate(-50%, -50%); z-index: 5; cursor: pointer; }
+.mk.closed { opacity: 0.5; }
+
+.mk-badge {
+  padding: 0 5px; border-radius: 999px; line-height: 15px;
+  font-size: 9.5px; font-weight: 800; color: #fff; letter-spacing: 0.3px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+}
+.mk-badge.buy { background: var(--up); }
+.mk-badge.sell { background: var(--down); }
+
+.mk-arrow {
+  width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+}
+.mk-arrow.buy { border-bottom: 9px solid var(--up); }
+.mk-arrow.sell { border-top: 9px solid var(--down); }
+
+.mk-pin { width: 2px; height: 14px; }
+.mk-pin.buy { background: var(--up); color: var(--up); }
+.mk-pin.sell { background: var(--down); color: var(--down); }
+.mk-pin.below { transform: translate(-50%, 3px); }
+.mk-pin.above { transform: translate(-50%, calc(-100% - 3px)); }
+.mk-pin::before {
+  /* invisible hit area — a 2px stem is impossible to hover otherwise */
+  content: ""; position: absolute; inset: -5px -8px;
+}
+.mk-pin::after {
+  content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+  width: 7px; height: 7px; border-radius: 50%; background: currentColor;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  transition: transform 0.12s ease;
+}
+.mk-pin.below::after { bottom: -3px; }
+.mk-pin.above::after { top: -3px; }
+.mk-pin:hover::after { transform: translateX(-50%) scale(1.45); }
+
+.mk-ring {
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2.5px solid var(--up); background: rgba(26, 26, 25, 0.4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+.mk-ring.sell { border-color: var(--down); }
+
+.lab-grid-1 { grid-template-columns: 1fr; }
+.lab-box.tall { height: 340px; }
+
+/* M5: pin stem with an arrowhead aimed at the line */
+.mk-pinarrow { width: 2px; height: 11px; }
+.mk-pinarrow.buy { background: var(--up); color: var(--up); }
+.mk-pinarrow.sell { background: var(--down); color: var(--down); }
+.mk-pinarrow.below { transform: translate(-50%, 8px); }
+.mk-pinarrow.above { transform: translate(-50%, calc(-100% - 8px)); }
+.mk-pinarrow::after {
+  content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+}
+.mk-pinarrow.below::after { top: -7px; border-bottom: 8px solid currentColor; }
+.mk-pinarrow.above::after { bottom: -7px; border-top: 8px solid currentColor; }
+
 @media (max-width: 640px) {
   .app { padding: 12px 12px 40px; }
   .tile .value { font-size: 19px; }

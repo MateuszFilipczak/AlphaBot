@@ -285,15 +285,19 @@ export default function PositionDetail() {
             <div className="legend">
               <span>
                 <span className="dot" style={{ background: "#0ca30c" }} />
-                kupno (otwarta pozycja)
+                kupno (pinezka pod wykresem)
               </span>
               <span>
-                <span className="dot" style={{ background: "#898781" }} />
-                zamknięte kupno
+                <span className="dot" style={{ background: "#0ca30c", opacity: 0.5 }} />
+                kupno zamknięte sprzedażą
               </span>
               <span>
-                <span className="dot diamond" style={{ background: "#898781" }} />
-                sprzedaż
+                <span className="dot" style={{ background: "#d03b3b" }} />
+                sprzedaż (pinezka nad wykresem)
+              </span>
+              <span>
+                <span className="dot" style={{ background: "#3987e5" }} />
+                ostatnia cena (puls)
               </span>
               <span>
                 <span className="dot" style={{ background: "#c3c2b7" }} />

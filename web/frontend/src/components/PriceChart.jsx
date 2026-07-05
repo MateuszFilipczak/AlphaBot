@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AreaSeries,
   CandlestickSeries,
-  LineSeries,
   LineStyle,
   createChart,
 } from "lightweight-charts";
@@ -26,12 +26,15 @@ function onCandles(markers, candles) {
   return markers.filter((m) => times.has(m.time));
 }
 
-// Transaction markers are HTML overlay dots (not lightweight-charts native
-// markers): native markers can't have outlines, shadows or hover effects.
-// Dots are re-positioned via chart coordinate APIs on every pan/zoom/resize.
+// Transaction markers are HTML overlay "pins" (stem + head, hanging off the
+// price line), not lightweight-charts native markers: native ones can't have
+// stems, shadows, hover effects or rich tooltips. Buys hang below the chart
+// (green), sells above (red); buy lots already closed by sells are dimmed.
+// Pins are re-positioned via chart coordinate APIs on every pan/zoom/resize.
 export default function PriceChart({ candles, markers, currentPrice, mode, currency = "USD" }) {
   const boxRef = useRef(null);
   const [dots, setDots] = useState([]); // [{x, y, marker}]
+  const [pulse, setPulse] = useState(null); // {x, y} — last price "live" dot (line mode)
   const [tooltip, setTooltip] = useState(null); // {x, y, marker}
 
   useEffect(() => {
@@ -70,11 +73,15 @@ export default function PriceChart({ candles, markers, currentPrice, mode, curre
       });
       series.setData(candles);
     } else {
-      series = chart.addSeries(LineSeries, {
-        color: C.accent,
+      // "A1": soft gradient fill under the line + pulsing last-price dot
+      series = chart.addSeries(AreaSeries, {
+        lineColor: C.accent,
         lineWidth: 2,
+        topColor: "rgba(57, 135, 229, 0.34)",
+        bottomColor: "rgba(57, 135, 229, 0.02)",
         priceLineVisible: false,
         lastValueVisible: true,
+        crosshairMarkerRadius: 5,
       });
       series.setData(candles.map((c) => ({ time: c.time, value: c.close })));
     }
@@ -96,12 +103,12 @@ export default function PriceChart({ candles, markers, currentPrice, mode, curre
 
     const updateDots = () => {
       const ts = chart.timeScale();
-      // plot-area bounds: the overlay divs aren't clipped by the chart canvas,
-      // so a dot panned/scrolled out of the pane must vanish, not float over
+      // plot-area bounds: the overlay pins aren't clipped by the chart canvas,
+      // so one panned/scrolled out of the pane must vanish, not float over
       // the page (pane = container minus right price scale & bottom time axis)
       const paneW = ts.width();
       const paneH = el.clientHeight - ts.height();
-      const stack = new Map(); // "time|type" → how many dots already placed
+      const stack = new Map(); // "time|type" → how many pins already placed
       const next = [];
       for (const m of visible) {
         const x = ts.timeToCoordinate(m.time);
@@ -111,19 +118,24 @@ export default function PriceChart({ candles, markers, currentPrice, mode, curre
           mode === "candles" ? (m.type === "BUY" ? candle.low : candle.high) : candle.close;
         const y = series.priceToCoordinate(anchor);
         if (y === null) continue;
-        // same-day same-direction transactions stack outward instead of overlapping
+        // pins anchor at the line/wick and hang away from it; same-day
+        // same-direction transactions stack further outward (pin ≈ 18 px)
         const key = `${m.time}|${m.type}`;
         const n = stack.get(key) ?? 0;
         stack.set(key, n + 1);
-        // line mode: Revolut-style, the dot sits ON the line (only same-day
-        // duplicates step off it); candle mode keeps the gap below/above the
-        // wick so dots don't cover the candle itself
-        const offset = (mode === "candles" ? 14 : 0) + n * 14;
-        const yDot = m.type === "BUY" ? y + offset : y - offset;
-        if (yDot < 0 || yDot > paneH) continue;
-        next.push({ x, y: yDot, marker: m });
+        const yPin = m.type === "BUY" ? y + n * 18 : y - n * 18;
+        if (yPin < 0 || yPin > paneH) continue;
+        next.push({ x, y: yPin, marker: m });
       }
       setDots(next);
+
+      // pulsing "live" dot on the last close (line mode only)
+      if (mode !== "candles" && candles.length) {
+        const last = candles[candles.length - 1];
+        const px = ts.timeToCoordinate(last.time);
+        const py = series.priceToCoordinate(last.close);
+        setPulse(px !== null && py !== null ? { x: px, y: py } : null);
+      }
     };
 
     chart.timeScale().fitContent();
@@ -139,24 +151,31 @@ export default function PriceChart({ candles, markers, currentPrice, mode, curre
       ro.disconnect();
       chart.remove();
       setDots([]);
+      setPulse(null);
       setTooltip(null);
     };
   }, [candles, markers, currentPrice, mode]);
 
-  const dotClass = (m) =>
-    m.type === "SELL" ? "dot-sell" : m.status === "open" ? "dot-open" : "dot-closed";
+  const pinClass = (m) =>
+    `${m.type === "BUY" ? "buy below" : "sell above"}${m.status === "closed" ? " closed" : ""}`;
 
   return (
     <div className="chart-box" ref={boxRef}>
       {dots.map((d, i) => (
-        <div
+        <span
           key={i}
-          className={`txn-dot ${dotClass(d.marker)}`}
+          className={`mk mk-pin ${pinClass(d.marker)}`}
           style={{ left: d.x, top: d.y }}
           onMouseEnter={() => setTooltip(d)}
           onMouseLeave={() => setTooltip(null)}
         />
       ))}
+      {pulse && (
+        <span
+          className="pulse-dot"
+          style={{ left: pulse.x, top: pulse.y, background: "#3987e5", color: "#3987e5" }}
+        />
+      )}
       {tooltip && (
         <div
           className="chart-tooltip"
