@@ -2,32 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 // ---- Chart lab (/lab) --------------------------------------------------------
-// Round 6: consolidating the header actions (Wpłata / Wypłata / Transakcja /
-// Import) into fewer controls — 4 interactive mockups. Not linked from the UI.
+// Round 7: portfolio switcher UX with many portfolios (limit 10/currency).
+// Four interactive mockups on sample data. Not linked from the UI.
 
-// action set shared by every proposal
-const ACTIONS = [
-  { key: "txn", label: "Transakcja", hint: "Kupno / sprzedaż", icon: "swap", primary: true },
-  { key: "deposit", label: "Wpłata", hint: "Zasil portfel", icon: "plus" },
-  { key: "withdraw", label: "Wypłata", hint: "Wypłać gotówkę", icon: "minus" },
-  { key: "import", label: "Import z XTB", hint: "Wczytaj xlsx", icon: "upload" },
+const SAMPLE = [
+  { id: 1, name: "Główny - XTB", value: "12 340 zł", pnl: "+854 zł", up: true },
+  { id: 2, name: "IKE", value: "8 210 zł", pnl: "+1 120 zł", up: true },
+  { id: 3, name: "IKZE", value: "5 430 zł", pnl: "−230 zł", up: false },
+  { id: 4, name: "Emerytura", value: "22 900 zł", pnl: "+3 410 zł", up: true },
+  { id: 5, name: "Dywidendowy", value: "9 750 zł", pnl: "+540 zł", up: true },
+  { id: 6, name: "Spekulacyjny", value: "3 120 zł", pnl: "−870 zł", up: false },
+  { id: 7, name: "ETF świat", value: "14 060 zł", pnl: "+2 030 zł", up: true },
+  { id: 8, name: "Obligacje", value: "6 500 zł", pnl: "+90 zł", up: true },
 ];
-
-function Icon({ kind }) {
-  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
-  switch (kind) {
-    case "swap":
-      return <svg width="16" height="16" viewBox="0 0 16 16"><g {...p}><path d="M2 5h9M9 2.5 11.5 5 9 7.5" /><path d="M14 11H5M7 8.5 4.5 11 7 13.5" /></g></svg>;
-    case "plus":
-      return <svg width="16" height="16" viewBox="0 0 16 16"><g {...p}><path d="M8 3v10M3 8h10" /></g></svg>;
-    case "minus":
-      return <svg width="16" height="16" viewBox="0 0 16 16"><g {...p}><path d="M3 8h10" /></g></svg>;
-    case "upload":
-      return <svg width="16" height="16" viewBox="0 0 16 16"><g {...p}><path d="M8 10V3M5.5 5.5 8 3l2.5 2.5M3 12h10" /></g></svg>;
-    default:
-      return null;
-  }
-}
 
 function useClickAway(onAway) {
   const ref = useRef(null);
@@ -44,155 +31,165 @@ function LabCard({ title, desc, children }) {
     <div className="lab-card">
       <h3>{title}</h3>
       <p className="lab-desc">{desc}</p>
-      <div className="action-stage">{children}</div>
+      <div className="sw-stage">{children}</div>
     </div>
   );
 }
 
-// V1 · Split button — one-click primary action + caret for the rest
-function VariantSplit({ onPick }) {
+// V1 · Plain dropdown — one control lists every portfolio + "new"
+function VariantDropdown({ items, active, setActive, onNew }) {
   const [open, setOpen] = useState(false);
   const ref = useClickAway(() => setOpen(false));
-  const [primary, ...rest] = ACTIONS;
+  const cur = items.find((p) => p.id === active);
   return (
-    <div className="split-wrap" ref={ref}>
-      <button className="btn primary split-main" onClick={() => onPick(primary)}>
-        <Icon kind={primary.icon} /> {primary.label}
-      </button>
-      <button className="btn primary split-caret" aria-label="Więcej" onClick={() => setOpen((o) => !o)}>
-        ▾
+    <div className="sw-drop" ref={ref}>
+      <button className="sw-trigger" onClick={() => setOpen((o) => !o)}>
+        <span>{cur?.name}</span>
+        <span className="sw-caret">▾</span>
       </button>
       {open && (
-        <div className="menu-pop act-menu">
-          {rest.map((a) => (
-            <button key={a.key} onClick={() => { setOpen(false); onPick(a); }}>
-              <Icon kind={a.icon} /> {a.label}
+        <div className="menu-pop sw-menu">
+          {items.map((p) => (
+            <button key={p.id} className={p.id === active ? "on" : ""} onClick={() => { setActive(p.id); setOpen(false); }}>
+              {p.id === active ? "✓ " : ""}{p.name}
             </button>
           ))}
+          <div className="sw-sep" />
+          <button className="sw-new" onClick={() => { onNew(); setOpen(false); }}>+ Nowy portfel</button>
         </div>
       )}
     </div>
   );
 }
 
-// V2 · Single dropdown — everything behind one "+ Dodaj ▾"
-function VariantDropdown({ onPick }) {
+// V2 · Tabs + overflow — first few as tabs, the rest behind "+N ▾"
+function VariantOverflow({ items, active, setActive, onNew }) {
   const [open, setOpen] = useState(false);
   const ref = useClickAway(() => setOpen(false));
+  const SHOWN = 3;
+  // keep the active portfolio visible even if it's in the overflow bucket
+  let head = items.slice(0, SHOWN);
+  let rest = items.slice(SHOWN);
+  if (!head.some((p) => p.id === active)) {
+    const a = items.find((p) => p.id === active);
+    if (a) { head = [...items.slice(0, SHOWN - 1), a]; rest = items.filter((p) => !head.includes(p)); }
+  }
   return (
-    <div className="split-wrap" ref={ref}>
-      <button className="btn primary" onClick={() => setOpen((o) => !o)}>
-        + Dodaj ▾
+    <div className="sw-tabs" ref={ref}>
+      {head.map((p) => (
+        <button key={p.id} className={`sw-tab ${p.id === active ? "on" : ""}`} onClick={() => setActive(p.id)}>
+          {p.name}
+        </button>
+      ))}
+      {rest.length > 0 && (
+        <div className="sw-more">
+          <button className="sw-tab more" onClick={() => setOpen((o) => !o)}>+{rest.length} ▾</button>
+          {open && (
+            <div className="menu-pop sw-menu">
+              {rest.map((p) => (
+                <button key={p.id} onClick={() => { setActive(p.id); setOpen(false); }}>{p.name}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <button className="sw-tab new" onClick={onNew}>+ Nowy</button>
+    </div>
+  );
+}
+
+// V3 · Rich dropdown — each row shows value + P&L
+function VariantRich({ items, active, setActive, onNew }) {
+  const [open, setOpen] = useState(false);
+  const ref = useClickAway(() => setOpen(false));
+  const cur = items.find((p) => p.id === active);
+  return (
+    <div className="sw-drop wide" ref={ref}>
+      <button className="sw-trigger" onClick={() => setOpen((o) => !o)}>
+        <span>{cur?.name}</span>
+        <span className={`sw-mini ${cur?.up ? "up" : "down"}`}>{cur?.pnl}</span>
+        <span className="sw-caret">▾</span>
       </button>
       {open && (
-        <div className="menu-pop act-menu wide">
-          {ACTIONS.map((a) => (
-            <button key={a.key} onClick={() => { setOpen(false); onPick(a); }}>
-              <Icon kind={a.icon} />
-              <span className="am-text">
-                <b>{a.label}</b>
-                <small>{a.hint}</small>
-              </span>
+        <div className="menu-pop sw-menu rich">
+          {items.map((p) => (
+            <button key={p.id} className={p.id === active ? "on" : ""} onClick={() => { setActive(p.id); setOpen(false); }}>
+              <span className="sw-rname">{p.name}</span>
+              <span className="sw-rval">{p.value}</span>
+              <span className={`sw-mini ${p.up ? "up" : "down"}`}>{p.pnl}</span>
             </button>
           ))}
+          <div className="sw-sep" />
+          <button className="sw-new" onClick={() => { onNew(); setOpen(false); }}>+ Nowy portfel</button>
         </div>
       )}
     </div>
   );
 }
 
-// V3 · Speed-dial FAB — a round + that fans actions out (labels on hover)
-function VariantFab({ onPick }) {
-  const [open, setOpen] = useState(false);
-  const ref = useClickAway(() => setOpen(false));
+// V4 · Scrollable pills — one row, horizontal scroll with fade edges
+function VariantPills({ items, active, setActive, onNew }) {
   return (
-    <div className="fab-wrap" ref={ref}>
-      {open && (
-        <div className="fab-items">
-          {ACTIONS.map((a) => (
-            <button key={a.key} className="fab-item" onClick={() => { setOpen(false); onPick(a); }}>
-              <span className="fab-label">{a.label}</span>
-              <span className="fab-mini"><Icon kind={a.icon} /></span>
-            </button>
-          ))}
-        </div>
-      )}
-      <button className={`fab-main ${open ? "open" : ""}`} onClick={() => setOpen((o) => !o)} aria-label="Dodaj">
-        +
-      </button>
-    </div>
-  );
-}
-
-// V4 · Icon popover — one + opening a grid of labelled action tiles
-function VariantTiles({ onPick }) {
-  const [open, setOpen] = useState(false);
-  const ref = useClickAway(() => setOpen(false));
-  return (
-    <div className="split-wrap" ref={ref}>
-      <button className="btn primary" onClick={() => setOpen((o) => !o)}>
-        + Nowa operacja
-      </button>
-      {open && (
-        <div className="tile-pop">
-          {ACTIONS.map((a) => (
-            <button key={a.key} className="op-tile" onClick={() => { setOpen(false); onPick(a); }}>
-              <span className={`op-ic op-${a.key}`}><Icon kind={a.icon} /></span>
-              <b>{a.label}</b>
-              <small>{a.hint}</small>
-            </button>
-          ))}
-        </div>
-      )}
+    <div className="sw-pillbar">
+      <div className="sw-pills">
+        {items.map((p) => (
+          <button key={p.id} className={`sw-pill ${p.id === active ? "on" : ""}`} onClick={() => setActive(p.id)}>
+            {p.name}
+          </button>
+        ))}
+        <button className="sw-pill new" onClick={onNew}>+ Nowy</button>
+      </div>
     </div>
   );
 }
 
 export default function ChartLab() {
-  const [picked, setPicked] = useState(null);
-  const onPick = (a) => setPicked(a.label);
+  const [count, setCount] = useState(8); // how many sample portfolios to show
+  const [active, setActive] = useState(1);
+  const [note, setNote] = useState(null);
+  const items = SAMPLE.slice(0, count);
+  const onNew = () => setNote("Kliknięto: + Nowy portfel");
+  const pass = { items, active, setActive: (id) => { setActive(id); setNote(null); }, onNew };
 
   return (
     <div className="app lab">
       <Link className="back" to="/">← Wróć do aplikacji</Link>
       <h1>
-        Laboratorium — runda 6{" "}
-        <span className="instr-name">spięcie przycisków akcji · 4 propozycje (klikalne)</span>
+        Laboratorium — runda 7{" "}
+        <span className="instr-name">przełącznik portfeli · limit 10/walutę · 4 propozycje</span>
       </h1>
       <p className="note">
-        Obecnie w nagłówku są 4 osobne przyciski: Importuj ▾ · + Wpłata · − Wypłata · + Transakcja.
-        Poniżej propozycje, jak zwinąć je w jeden. Kliknij — na dole pokaże się wybrana akcja.
+        Obecnie portfele danej waluty to taby obok siebie — przy 10 zaczną się rozjeżdżać.
+        Ustaw liczbę portfeli i sprawdź, jak każdy wariant to znosi. Kliknij, aby przełączyć.
       </p>
+      <div className="section-head" style={{ marginBottom: 8 }}>
+        <span className="chart-title">Liczba portfeli do podglądu:</span>
+        <div className="seg">
+          {[3, 6, 8, 10].map((n) => (
+            <button key={n} className={count === n ? "active" : ""} onClick={() => setActive((a) => Math.min(a, n)) || setCount(n)}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="lab-grid">
-        <LabCard
-          title="V1 · Split — akcja + rozwijane"
-          desc="Najczęstsza akcja (Transakcja) jednym kliknięciem; strzałka odsłania resztę. Kompromis: częste szybko, rzadkie o klik dalej."
-        >
-          <VariantSplit onPick={onPick} />
+        <LabCard title="V1 · Rozwijane menu" desc="Jeden przycisk z nazwą aktywnego portfela; lista wszystkich + „Nowy portfel”. Kompaktowe, skaluje się do 10 bez rozjeżdżania.">
+          <VariantDropdown {...pass} />
         </LabCard>
-        <LabCard
-          title="V2 · Jeden przycisk + Dodaj ▾"
-          desc="Wszystko za jednym przyciskiem z rozwijaną listą (z podpowiedziami). Najbardziej zwięzłe; każda akcja to dwa kliknięcia."
-        >
-          <VariantDropdown onPick={onPick} />
+        <LabCard title="V2 · Taby + nadmiar" desc="Pierwsze 3 jako taby (szybki dostęp), reszta pod „+N ▾”. Aktywny zawsze widoczny. Kompromis: znane taby, ale bez rozlewania.">
+          <VariantOverflow {...pass} />
         </LabCard>
-        <LabCard
-          title="V3 · FAB (pływający +)"
-          desc="Okrągły + w rogu ekranu, rozwijający wachlarz akcji. Mobilny sznyt, nie zajmuje miejsca w nagłówku."
-        >
-          <VariantFab onPick={onPick} />
+        <LabCard title="V3 · Menu z wartościami" desc="Rozwijane, ale każdy wiersz pokazuje wartość i wynik portfela — od razu widać, który jak stoi, bez wchodzenia.">
+          <VariantRich {...pass} />
         </LabCard>
-        <LabCard
-          title="V4 · Kafelki akcji w popoverze"
-          desc="Jeden przycisk otwiera panel z dużymi, opisanymi kafelkami. Najczytelniejsze, dobre gdy akcji może przybyć."
-        >
-          <VariantTiles onPick={onPick} />
+        <LabCard title="V4 · Przewijane piguły" desc="Najmniejsza zmiana: taby zostają, ale w jednym rzędzie z poziomym przewijaniem i wygaszaniem krawędzi.">
+          <VariantPills {...pass} />
         </LabCard>
       </div>
 
-      <div className={`act-picked ${picked ? "show" : ""}`}>
-        {picked ? <>Wybrano akcję: <b>{picked}</b></> : "Kliknij którąś propozycję…"}
+      <div className={`act-picked ${note ? "show" : ""}`}>
+        {note ?? <>Aktywny portfel: <b>{items.find((p) => p.id === active)?.name}</b></>}
       </div>
     </div>
   );

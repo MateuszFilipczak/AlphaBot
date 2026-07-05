@@ -9,22 +9,70 @@ import ConfirmModal from "./components/ConfirmModal.jsx";
 import RowMenu from "./components/RowMenu.jsx";
 import { useXtbImport } from "./components/ImportModal.jsx";
 
+// closes a dropdown on outside click or Escape while it's open
+function useDismissable(open, close) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => e.key === "Escape" && close();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, close]);
+}
+
+// Portfolio switcher: one dropdown listing the current currency's portfolios
+// (+ "Nowy portfel"). Replaces side-by-side tabs so up to 10 stay tidy; the
+// active portfolio's rename/delete menu lives next to it (in App).
+function PortfolioSwitcher({ portfolios, activeId, onSelect, onNew }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useDismissable(open, () => setOpen(false));
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const active = portfolios.find((p) => p.id === activeId) ?? portfolios[0];
+  return (
+    <div className="sw-drop" ref={ref}>
+      <button className="sw-trigger" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <span>{active?.name}</span>
+        <span className="sw-caret">▾</span>
+      </button>
+      {open && (
+        <div className="menu-pop sw-menu">
+          {portfolios.map((p) => (
+            <button
+              key={p.id}
+              className={p.id === activeId ? "on" : ""}
+              onClick={() => { onSelect(p.id); setOpen(false); }}
+            >
+              {p.id === activeId ? "✓ " : ""}{p.name}
+            </button>
+          ))}
+          <div className="sw-sep" />
+          <button className="sw-new" onClick={() => { onNew(); setOpen(false); }}>
+            + Nowy portfel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Split action button: primary "+ Transakcja" one click, caret opens the rest
 // (Wpłata / Wypłata / Import). Menu closes on outside click or Escape.
 function AddActions({ onTransaction, onDeposit, onWithdraw, onImport, importing }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  useDismissable(open, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
-    const onKey = (e) => e.key === "Escape" && setOpen(false);
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
   const pick = (fn) => () => {
@@ -271,36 +319,32 @@ export default function App() {
             currency={activeCurrency}
             refreshTick={refreshTick}
           />
-          <nav className="ptabs" aria-label="Portfele">
-            {currencyPortfolios.map((p) => (
-              <span key={p.id} className={`ptab ${p.id === portfolioId ? "active" : ""}`}>
-                <button className="ptab-btn" onClick={() => navigate(`/?p=${p.id}`)}>
-                  {p.name}
-                </button>
-                {p.id === portfolioId && (
-                  <RowMenu
-                    label="Menu portfela"
-                    items={[
-                      { label: "Zmień nazwę", onClick: () => setRenameModal(p) },
-                      {
-                        label: "Usuń portfel",
-                        danger: true,
-                        onClick: () => {
-                          setDeleteError(null);
-                          setDeleteModal(p);
-                        },
+          {currencyPortfolios.length > 0 && (
+            <nav className="pswitch" aria-label="Portfele">
+              <PortfolioSwitcher
+                portfolios={currencyPortfolios}
+                activeId={portfolioId}
+                onSelect={(id) => navigate(`/?p=${id}`)}
+                onNew={() => setPortfolioModal(true)}
+              />
+              {portfolio && currencyPortfolios.some((p) => p.id === portfolioId) && (
+                <RowMenu
+                  label="Menu portfela"
+                  items={[
+                    { label: "Zmień nazwę", onClick: () => setRenameModal(portfolio) },
+                    {
+                      label: "Usuń portfel",
+                      danger: true,
+                      onClick: () => {
+                        setDeleteError(null);
+                        setDeleteModal(portfolio);
                       },
-                    ]}
-                  />
-                )}
-              </span>
-            ))}
-            {currencyPortfolios.length > 0 && (
-              <button className="ptab-new" onClick={() => setPortfolioModal(true)}>
-                + Nowy portfel
-              </button>
-            )}
-          </nav>
+                    },
+                  ]}
+                />
+              )}
+            </nav>
+          )}
         </div>
 
         {portfolio ? (

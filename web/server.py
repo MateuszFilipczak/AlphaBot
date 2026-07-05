@@ -256,9 +256,19 @@ def _duplicate_name_400(name: str, currency: str) -> HTTPException:
 # currency) constraint — no check-then-write pre-scan, so a concurrent
 # duplicate can't slip past into a 500.
 
+MAX_PORTFOLIOS_PER_CURRENCY = 10
+
+
 @app.post("/api/portfolios", status_code=201)
 def create_portfolio(body: PortfolioIn):
     name = _clean_portfolio_name(body.name)
+    existing = sum(1 for p in db.get_portfolios() if p["currency"] == body.currency)
+    if existing >= MAX_PORTFOLIOS_PER_CURRENCY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limit {MAX_PORTFOLIOS_PER_CURRENCY} portfeli w walucie {body.currency} "
+                   f"został osiągnięty — usuń jakiś, aby dodać nowy",
+        )
     try:
         return {"id": db.add_portfolio(name, body.currency)}
     except sqlite3.IntegrityError:

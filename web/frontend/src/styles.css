@@ -63,6 +63,8 @@ button { font: inherit; cursor: pointer; }
   padding: 6px 12px; border-radius: 10px; font-weight: 600;
 }
 .ptab-new:hover { border-color: var(--accent); }
+.pswitch { display: flex; align-items: center; gap: 4px; }
+.pswitch .kebab { padding: 4px 8px; }
 
 .empty-currency {
   text-align: center; padding: 64px 16px; color: var(--muted);
@@ -493,6 +495,52 @@ h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
   background: var(--surface); border: 1px solid var(--border); color: var(--muted);
 }
 .act-picked.show { color: var(--ink); border-color: var(--accent); }
+
+/* ---- Portfolio switcher proposals (lab round 7) ---- */
+.sw-stage { min-height: 120px; padding-top: 6px; }
+.sw-drop { position: relative; display: inline-block; }
+.sw-trigger {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px;
+  color: var(--ink); padding: 8px 12px; font: inherit; font-weight: 600; min-width: 180px;
+}
+.sw-drop.wide .sw-trigger { min-width: 240px; }
+.sw-caret { margin-left: auto; color: var(--muted); }
+.sw-menu { position: absolute; top: 100%; left: 0; margin-top: 5px; min-width: 200px; max-height: 320px; overflow-y: auto; z-index: 30; }
+.sw-menu button.on { color: var(--accent); font-weight: 700; }
+.sw-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.sw-new { color: var(--accent) !important; font-weight: 600; }
+.sw-menu.rich { min-width: 280px; }
+.sw-menu.rich button { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; }
+.sw-rname { font-weight: 600; }
+.sw-rval { color: var(--ink-2); font-size: 12.5px; text-align: right; }
+.sw-mini { font-size: 12px; font-weight: 700; }
+.sw-mini.up { color: var(--up); }
+.sw-mini.down { color: var(--down); }
+.sw-menu.rich .sw-mini { grid-column: 2; }
+
+.sw-tabs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sw-tab {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--ink-2); padding: 6px 12px; font: inherit; font-weight: 600; font-size: 13.5px;
+}
+.sw-tab.on { background: var(--page); color: var(--ink); border-color: var(--accent); }
+.sw-tab.new { color: var(--accent); border-style: dashed; }
+.sw-tab.more { color: var(--ink-2); }
+.sw-more { position: relative; }
+
+.sw-pillbar { position: relative; max-width: 420px; }
+.sw-pillbar::after {
+  content: ""; position: absolute; top: 0; right: 0; width: 34px; height: 100%;
+  pointer-events: none; background: linear-gradient(90deg, transparent, var(--surface));
+}
+.sw-pills { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+.sw-pill {
+  flex: none; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px;
+  color: var(--ink-2); padding: 6px 14px; font: inherit; font-weight: 600; font-size: 13px; white-space: nowrap;
+}
+.sw-pill.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.sw-pill.new { color: var(--accent); border-style: dashed; }
 
 /* M5: pin stem with an arrowhead aimed at the line */
 .mk-pinarrow { width: 2px; height: 11px; }

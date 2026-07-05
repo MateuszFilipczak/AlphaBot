@@ -96,6 +96,20 @@ def test_rename_to_own_name_is_noop_not_conflict(client):
     assert r.status_code == 200
 
 
+def test_portfolio_limit_per_currency(client):
+    from web.server import MAX_PORTFOLIOS_PER_CURRENCY as LIMIT
+
+    # GBP starts empty (no seeded GBP portfolio) → fill it exactly to the cap
+    for i in range(LIMIT):
+        assert client.post("/api/portfolios", json={"name": f"GBP {i}", "currency": "GBP"}).status_code == 201
+    r = client.post("/api/portfolios", json={"name": "GBP nadmiar", "currency": "GBP"})
+    assert r.status_code == 400
+    assert "Limit" in r.json()["detail"]
+
+    # the cap is per currency — another currency is unaffected
+    assert client.post("/api/portfolios", json={"name": "EUR ok", "currency": "EUR"}).status_code == 201
+
+
 def test_invalid_currency_rejected(client):
     r = client.post("/api/portfolios", json={"name": "X", "currency": "CHF"})
     assert r.status_code == 422
