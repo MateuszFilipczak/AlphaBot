@@ -135,6 +135,7 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
   // remaining installments implied by a stored end_month (relative to now)
   const editLeft = edit ? Math.max(0, monthsBetween(monthKey(), edit.end_month) + 1) : "";
   const [name, setName] = useState(edit?.name ?? "");
+  const [institution, setInstitution] = useState(edit?.institution ?? "");
   const [installment, setInstallment] = useState(edit ? String(edit.installment) : "");
   const [ratLeft, setRatLeft] = useState(edit ? String(editLeft) : "");
   const [total, setTotal] = useState(edit?.installments_total ? String(edit.installments_total) : "");
@@ -162,6 +163,7 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
     setError(null);
     const body = {
       name: name.trim(),
+      institution: institution.trim() || null,
       installment: inst,
       end_month: endMonth,
       installments_total: total ? tot : null,
@@ -182,9 +184,15 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit}>
         <h3>{edit ? "Edytuj kredyt" : "Nowy kredyt"}</h3>
-        <div className="field">
-          <label>Nazwa</label>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="np. Kredyt hipoteczny" />
+        <div className="field-row">
+          <div className="field">
+            <label>Nazwa</label>
+            <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="np. Kredyt hipoteczny" />
+          </div>
+          <div className="field">
+            <label>Instytucja (opcjonalna)</label>
+            <input value={institution} onChange={(e) => setInstitution(e.target.value)} placeholder="np. Pekao" />
+          </div>
         </div>
         <div className="field-row">
           <div className="field">

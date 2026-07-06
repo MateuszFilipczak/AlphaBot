@@ -371,7 +371,7 @@ export default function Budget() {
                     <div className={`kl-row ${l.s.finished ? "done" : ""}`} key={l.id}>
                       <div className="kl-row-name">
                         <b>{l.name}{l.s.finished && <span className="badge ok">spłacony</span>}</b>
-                        <span className="muted">do {fmtMY(l.s.endMonth)}</span>
+                        <span className="muted">{l.institution ? `${l.institution} · ` : ""}do {fmtMY(l.s.endMonth)}</span>
                       </div>
                       <div className="kl-row-bar">
                         {l.s.pct != null && <div className="bud-bar"><span style={{ width: `${l.s.pct}%`, background: LOANS_COLOR }} /></div>}

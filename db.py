@@ -195,6 +195,7 @@ def init_db():
                 installment REAL NOT NULL CHECK (installment > 0),
                 end_month TEXT NOT NULL,                    -- 'YYYY-MM' ostatnia rata
                 installments_total INTEGER,                 -- łączna liczba rat (dla paska), opcjonalne
+                institution TEXT,                           -- bank / instytucja, opcjonalne
                 shared_installment REAL NOT NULL DEFAULT 0,
                 note TEXT
             )
@@ -263,9 +264,12 @@ def init_db():
             if old_seq is not None:
                 conn.execute("DELETE FROM sqlite_sequence WHERE name='budget_loans'")
                 conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('budget_loans', ?)", (old_seq["seq"],))
-        # optional original installment count (drives the progress bar)
-        if "installments_total" not in {r["name"] for r in conn.execute("PRAGMA table_info(budget_loans)")}:
+        # optional original installment count (drives the progress bar) + institution
+        bl_cols2 = {r["name"] for r in conn.execute("PRAGMA table_info(budget_loans)")}
+        if "installments_total" not in bl_cols2:
             conn.execute("ALTER TABLE budget_loans ADD COLUMN installments_total INTEGER")
+        if "institution" not in bl_cols2:
+            conn.execute("ALTER TABLE budget_loans ADD COLUMN institution TEXT")
         # Recurring INCOME sources hold a name/category only; the actual amount
         # is entered per month (salary varies), stored here. Expenses stay
         # fixed. On first creation, seed the current month from any income
@@ -895,26 +899,27 @@ def get_budget_loans() -> list[dict]:
 
 
 def add_budget_loan(name: str, installment: float, end_month: str, note: str | None,
-                    shared_installment: float = 0.0, installments_total: int | None = None) -> int:
+                    shared_installment: float = 0.0, installments_total: int | None = None,
+                    institution: str | None = None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO budget_loans (name, installment, end_month, installments_total, note, shared_installment)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (name, installment, end_month, installments_total, note, shared_installment),
+            """INSERT INTO budget_loans (name, installment, end_month, installments_total, institution, note, shared_installment)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (name, installment, end_month, installments_total, institution, note, shared_installment),
         )
         return cur.lastrowid
 
 
 def update_budget_loan(loan_id: int, name: str, installment: float, end_month: str,
                        note: str | None, shared_installment: float = 0.0,
-                       installments_total: int | None = None) -> bool:
+                       installments_total: int | None = None, institution: str | None = None) -> bool:
     with get_conn() as conn:
         cur = conn.execute(
             """UPDATE budget_loans
                SET name = ?, installment = ?, end_month = ?, installments_total = ?,
-                   note = ?, shared_installment = ?
+                   institution = ?, note = ?, shared_installment = ?
                WHERE id = ?""",
-            (name, installment, end_month, installments_total, note, shared_installment, loan_id),
+            (name, installment, end_month, installments_total, institution, note, shared_installment, loan_id),
         )
         return cur.rowcount > 0
 
