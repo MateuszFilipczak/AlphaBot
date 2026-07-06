@@ -1,147 +1,109 @@
-import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { addMonths } from "../budget.js";
 
 // ---- Chart lab (/lab) --------------------------------------------------------
-// Round 12: category manager redesign proposals + reordering. Interactive on
-// sample categories (drag or arrows actually move items).
+// Round 13: simpler loan model — monthly obligation (installment) + how many
+// installments remain (counts down from end_month). No bank balance tracking.
+// 4 proposals; some optionally show a progress bar if a total count is given.
 
-const CATS = [
-  { id: 1, name: "Mieszkanie", color: "#3b82f6" },
-  { id: 2, name: "Media", color: "#06b6d4" },
-  { id: 3, name: "Transport", color: "#f59e0b" },
-  { id: 4, name: "Jedzenie", color: "#22c55e" },
-  { id: 5, name: "Zdrowie", color: "#ef4444" },
-  { id: 6, name: "Rozrywka", color: "#a855f7" },
-  { id: 7, name: "Subskrypcje", color: "#ec4899" },
-  { id: 8, name: "Ubezpieczenia", color: "#eab308" },
-  { id: 9, name: "Inne", color: "#94a3b8" },
+const NOW = "2026-07";
+const zl = (v) => (v ?? 0).toLocaleString("pl-PL", { style: "currency", currency: "PLN" });
+const fmtMY = (m) => { const [y, mo] = m.split("-"); return `${mo}.${y}`; };
+
+// ratLeft = installments remaining as of NOW; totalRat = original count (opt.)
+const LOANS = [
+  { name: "Kredyt Hipoteczny (Pekao)", installment: 3275.39, ratLeft: 122, totalRat: 132 },
+  { name: "Kredyt Samochodowy (Revolut)", installment: 2793.92, ratLeft: 2, totalRat: 6 },
+  { name: "Kredyt Gotówkowy (Revolut)", installment: 311.14, ratLeft: 10, totalRat: 12 },
+  { name: "KKOP (Teściowa)", installment: 2000, ratLeft: 10, totalRat: 20 },
 ];
+const VIEWS = LOANS.map((l) => ({
+  ...l,
+  end: addMonths(NOW, l.ratLeft - 1),
+  toPay: l.installment * l.ratLeft,
+  pct: l.totalRat ? Math.round(((l.totalRat - l.ratLeft) / l.totalRat) * 100) : null,
+}));
+const C = "#5b6cff";
+const monthly = VIEWS.reduce((a, l) => a + l.installment, 0);
+const Bar = ({ pct }) => <div className="kl-bar"><span style={{ width: `${pct}%`, background: C }} /></div>;
 
-function useOrder(init) {
-  const [items, setItems] = useState(init);
-  const move = (i, dir) => setItems((a) => {
-    const j = i + dir;
-    if (j < 0 || j >= a.length) return a;
-    const b = [...a]; [b[i], b[j]] = [b[j], b[i]]; return b;
-  });
-  const drop = (from, to) => setItems((a) => {
-    if (from == null || from === to) return a;
-    const b = [...a]; const [m] = b.splice(from, 1); b.splice(to, 0, m); return b;
-  });
-  return { items, move, drop };
+function Topline() {
+  return (
+    <div className="kl-topline">
+      <div><span className="muted">Miesięczne zobowiązania z kredytów</span><b>{zl(monthly)}</b></div>
+    </div>
+  );
 }
 
-// C1 · Drag & drop z uchwytem
-function C1() {
-  const { items, drop } = useOrder(CATS);
-  const drag = useRef(null);
-  const [over, setOver] = useState(null);
+// L1 · Minimalny — tylko rata + ile rat do końca
+function L1() {
   return (
-    <div className="cm-list">
-      {items.map((c, i) => (
-        <div
-          key={c.id}
-          className={`cm-row ${over === i ? "cm-over" : ""}`}
-          draggable
-          onDragStart={() => (drag.current = i)}
-          onDragOver={(e) => { e.preventDefault(); setOver(i); }}
-          onDragLeave={() => setOver(null)}
-          onDrop={() => { drop(drag.current, i); drag.current = null; setOver(null); }}
-        >
-          <span className="cm-handle" title="Przeciągnij">⠿</span>
-          <span className="cm-swatch" style={{ background: c.color }} />
-          <span className="cm-name">{c.name}</span>
-          <div className="cm-actions">
-            <button title="Edytuj">✎</button>
-            <button className="danger" title="Usuń">✕</button>
+    <div className="kl-rows">
+      {VIEWS.map((l) => (
+        <div className="kl-row l1" key={l.name}>
+          <div className="kl-row-name"><b>{l.name}</b></div>
+          <div className="kl-l1-mid muted">{l.ratLeft} rat do końca · do {fmtMY(l.end)}</div>
+          <div className="kl-row-vals"><b>{zl(l.installment)}</b><span className="muted">/mies.</span></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// L2 · Z paskiem odliczania (gdy podano łączną liczbę rat)
+function L2() {
+  return (
+    <div className="kl-rows">
+      {VIEWS.map((l) => (
+        <div className="kl-row" key={l.name}>
+          <div className="kl-row-name"><b>{l.name}</b><span className="muted">do {fmtMY(l.end)}</span></div>
+          <div className="kl-row-bar">
+            <Bar pct={l.pct ?? 0} />
+            <span className="muted">{l.totalRat ? `${l.totalRat - l.ratLeft}/${l.totalRat} rat · ${l.pct}%` : `${l.ratLeft} rat do końca`}</span>
+          </div>
+          <div className="kl-row-vals"><b>{zl(l.installment)}</b><span className="muted">/mies.</span></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// L3 · Kafelek zobowiązania (rata na pierwszym planie)
+function L3() {
+  return (
+    <div className="kl-cards">
+      {VIEWS.map((l) => (
+        <div className="kl-card l3" key={l.name}>
+          <div className="kl-l3-info">
+            <b>{l.name}</b>
+            <span className="muted">zostało {l.ratLeft} rat · do {fmtMY(l.end)}</span>
+            <span className="muted">łącznie do końca ≈ {zl(l.toPay)}</span>
+          </div>
+          <div className="kl-l3-rata">
+            <b>{zl(l.installment)}</b>
+            <span className="muted">/ mies.</span>
           </div>
         </div>
       ))}
-      <button className="cm-add-row">+ Dodaj kategorię</button>
     </div>
   );
 }
 
-// C2 · Strzałki góra/dół
-function C2() {
-  const { items, move } = useOrder(CATS);
+// L4 · Widok budżetowy — nacisk na sumę zobowiązań, cienkie wiersze
+function L4() {
   return (
-    <div className="cm-list">
-      {items.map((c, i) => (
-        <div className="cm-row" key={c.id}>
-          <span className="cm-swatch" style={{ background: c.color }} />
-          <span className="cm-name">{c.name}</span>
-          <div className="cm-arrows">
-            <button disabled={i === 0} onClick={() => move(i, -1)} aria-label="W górę">↑</button>
-            <button disabled={i === items.length - 1} onClick={() => move(i, 1)} aria-label="W dół">↓</button>
-          </div>
-          <div className="cm-actions">
-            <button title="Edytuj">✎</button>
-            <button className="danger" title="Usuń">✕</button>
-          </div>
-        </div>
-      ))}
-      <button className="cm-add-row">+ Dodaj kategorię</button>
-    </div>
-  );
-}
-
-// C3 · Chipy (przeciągane)
-function C3() {
-  const { items, drop } = useOrder(CATS);
-  const drag = useRef(null);
-  return (
-    <div className="cm-chips">
-      {items.map((c, i) => (
-        <span
-          key={c.id}
-          className="cm-chip"
-          draggable
-          onDragStart={() => (drag.current = i)}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={() => { drop(drag.current, i); drag.current = null; }}
-          style={{ borderColor: c.color }}
-        >
-          <i style={{ background: c.color }} />
-          {c.name}
-          <button className="cm-chip-x" title="Usuń">✕</button>
-        </span>
-      ))}
-      <button className="cm-chip cm-chip-add">+ Dodaj</button>
-    </div>
-  );
-}
-
-// C4 · Dwupanelowy (lista + edytor)
-function C4() {
-  const { items, move } = useOrder(CATS);
-  const [sel, setSel] = useState(items[0].id);
-  const cur = items.find((c) => c.id === sel) ?? items[0];
-  return (
-    <div className="cm-split">
-      <div className="cm-split-list">
-        {items.map((c, i) => (
-          <div key={c.id} className={`cm-split-row ${c.id === sel ? "on" : ""}`} onClick={() => setSel(c.id)}>
-            <span className="cm-swatch" style={{ background: c.color }} />
-            <span className="cm-name">{c.name}</span>
-            <div className="cm-arrows">
-              <button disabled={i === 0} onClick={(e) => { e.stopPropagation(); move(i, -1); }}>↑</button>
-              <button disabled={i === items.length - 1} onClick={(e) => { e.stopPropagation(); move(i, 1); }}>↓</button>
-            </div>
-          </div>
-        ))}
-        <button className="cm-add-row">+ Dodaj</button>
+    <div className="kl-l4">
+      <div className="kl-l4-sum">
+        <span className="muted">Suma rat w tym miesiącu</span>
+        <b>{zl(monthly)}</b>
       </div>
-      <div className="cm-editor">
-        <div className="cm-editor-head"><span className="cm-swatch lg" style={{ background: cur.color }} />{cur.name}</div>
-        <label className="cm-lbl">Nazwa</label>
-        <input className="cm-input" defaultValue={cur.name} key={cur.id + "n"} />
-        <label className="cm-lbl">Kolor</label>
-        <input type="color" className="cm-color" defaultValue={cur.color} key={cur.id + "c"} />
-        <div className="cm-editor-actions">
-          <button className="btn small danger">Usuń kategorię</button>
+      {VIEWS.map((l) => (
+        <div className="kl-l4-row" key={l.name}>
+          <span className="kl-l4-name">{l.name}</span>
+          <span className="muted">{l.ratLeft} rat → {fmtMY(l.end)}</span>
+          <b>{zl(l.installment)}</b>
         </div>
-      </div>
+      ))}
     </div>
   );
 }
@@ -151,10 +113,7 @@ function LabCard({ title, desc, children }) {
     <div className="lab-card lab-card-wide">
       <h3>{title}</h3>
       <p className="lab-desc">{desc}</p>
-      <div className="cm-stage">
-        <div className="cm-toggle"><button className="on">Wydatki</button><button>Wpływy</button></div>
-        {children}
-      </div>
+      <div className="kl-stage"><Topline />{children}</div>
     </div>
   );
 }
@@ -164,24 +123,24 @@ export default function ChartLab() {
     <div className="app lab">
       <Link className="back" to="/">← Wróć do aplikacji</Link>
       <h1>
-        Laboratorium — runda 12{" "}
-        <span className="instr-name">menu kategorii + zmiana kolejności · 4 propozycje (klikalne)</span>
+        Laboratorium — runda 13{" "}
+        <span className="instr-name">kredyty: zobowiązanie + liczba rat do końca · 4 propozycje</span>
       </h1>
       <p className="note">
-        Każda propozycja pozwala zmienić kolejność — przeciągnij element albo użyj strzałek. Kolejność
-        z tego menu steruje układem w liście wydatków i na pasku struktury.
+        Prostszy model: podajesz ratę i ile rat zostało (liczba odlicza się co miesiąc, bez łączenia
+        z bankiem). Bez śledzenia salda. Pasek postępu tylko tam, gdzie podasz łączną liczbę rat.
       </p>
-      <LabCard title="C1 · Lista z uchwytem (drag & drop)" desc="Czyste wiersze: uchwyt do przeciągania, próbka koloru, nazwa, akcje po prawej. Przeciągnij wiersz, żeby zmienić kolejność.">
-        <C1 />
+      <LabCard title="L1 · Minimalny" desc="Tylko rata i „X rat do końca (do MM.RRRR)”. Bez paska, bez salda. Najczystsze — czyste zobowiązanie miesięczne.">
+        <L1 />
       </LabCard>
-      <LabCard title="C2 · Strzałki góra/dół" desc="Bez przeciągania — kolejność zmieniasz strzałkami ↑↓. Najprostsze i najpewniejsze, działa wszędzie.">
-        <C2 />
+      <LabCard title="L2 · Z paskiem odliczania" desc="Rata + pasek postępu z liczby rat (jeśli podasz łączną liczbę). Widać jak daleko jesteś, ale wciąż bez salda z odsetkami.">
+        <L2 />
       </LabCard>
-      <LabCard title="C3 · Chipy" desc="Kategorie jako kolorowe piguły w jednym bloku, przeciągane między sobą. Zwarte i wizualne; edycja po kliknięciu.">
-        <C3 />
+      <LabCard title="L3 · Kafelek zobowiązania" desc="Rata na pierwszym planie, obok „zostało X rat” i „łącznie do końca ≈ rata × rat”. Nacisk na miesięczny koszt.">
+        <L3 />
       </LabCard>
-      <LabCard title="C4 · Dwupanelowy" desc="Po lewej lista (ze strzałkami), po prawej edytor wybranej kategorii (nazwa, kolor, usuń). Najwięcej miejsca, jak panel ustawień.">
-        <C4 />
+      <LabCard title="L4 · Widok budżetowy" desc="Na górze suma rat (to, co realnie obciąża budżet), pod spodem cienkie wiersze: rata + rat do końca. Najbardziej „budżetowe”.">
+        <L4 />
       </LabCard>
     </div>
   );

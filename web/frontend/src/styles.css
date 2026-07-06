@@ -802,6 +802,22 @@ h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
 .cm-color { width: 46px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); }
 .cm-editor-actions { margin-top: 14px; }
 
+/* ---- Simpler loan model proposals (lab round 13) ---- */
+.kl-row.l1 { grid-template-columns: 1.3fr 1.6fr 1fr; }
+.kl-l1-mid { font-size: 12.5px; }
+.kl-card.l3 { justify-content: space-between; }
+.kl-l3-info { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.kl-l3-info b { font-size: 13.5px; }
+.kl-l3-rata { text-align: right; flex: none; }
+.kl-l3-rata b { font-size: 20px; font-weight: 800; }
+.kl-l3-rata .muted { font-size: 11.5px; display: block; }
+.kl-l4-sum { display: flex; align-items: baseline; justify-content: space-between; padding: 4px 0 12px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+.kl-l4-sum b { font-size: 20px; font-weight: 800; }
+.kl-l4-row { display: grid; grid-template-columns: 1.4fr 1.2fr auto; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.kl-l4-row:last-child { border-bottom: 0; }
+.kl-l4-name { font-weight: 600; }
+.kl-l4-row .muted { font-size: 12.5px; }
+
 /* ---- Loans view proposals (lab round 11) ---- */
 .kl-stage { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 14px; }
 .kl-topline { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 14px; }

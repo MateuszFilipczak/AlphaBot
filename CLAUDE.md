@@ -81,10 +81,12 @@ variants on real data before shipping; it has no stable content and is safe to o
 math lives on the frontend in `web/frontend/src/budget.js` (pure, unit-testable: month arithmetic +
 `loanState`). Tables (all additive in `init_db()`): `budget_items` (recurring INCOME/EXPENSE plus
 one-off — `month` NULL = recurring, `'YYYY-MM'` = a one-off in that month; `category_id`,
-`shared_amount` = partner's share), `budget_loans` (**snapshot model**: `principal` for the % bar +
-`remaining` outstanding balance + current `installment` + `end_month` + `shared_installment` — the user
-enters the current state, so in-progress loans, rate changes and overpayments are just field edits, no
-amortization engine; a loan counts as a monthly expense in any month ≤ end_month), `budget_categories`
+`shared_amount` = partner's share), `budget_loans` (**monthly-obligation model** — no bank balance:
+current `installment` + `end_month` (last payment) + optional `installments_total` for a progress bar +
+`shared_installment`. The remaining-installment count counts itself down from `end_month` each month;
+the modal asks "ile rat zostało do końca" and derives `end_month = now + left − 1`. Rate changes /
+overpayments = edit rata + end month. Counts as a monthly expense in any month ≤ end_month. Legacy
+`principal`/`remaining` columns linger unused), `budget_categories`
 (user-managed name+colour, seeded once so deletions stick; `position` drives display order — the C1
 manager reorders by drag-and-drop via `PUT /api/budget/categories/reorder`), `budget_income_amounts`
 (per-month amount for a recurring income source: **income is a template whose amount is entered fresh

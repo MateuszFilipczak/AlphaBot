@@ -11,6 +11,7 @@ import { LOANS_COLOR, NO_CAT_COLOR, addMonths, loanState, monthKey, monthLabel }
 
 const zl = (v) => (v ?? 0).toLocaleString("pl-PL", { style: "currency", currency: "PLN" });
 const pnl = (v) => (v >= 0 ? "pnl-up" : "pnl-down");
+const fmtMY = (m) => { const [y, mo] = m.split("-"); return `${mo}.${y}`; };  // 'YYYY-MM' → 'MM.YYYY'
 
 export default function Budget() {
   const [month, setMonth] = useState(monthKey());
@@ -132,11 +133,11 @@ export default function Budget() {
     const catSegs = [...byCat.values()].sort((a, b) => a.ord - b.ord);
     if (installmentsTotal > 0) catSegs.unshift({ label: "Raty kredytów", amount: installmentsTotal, color: LOANS_COLOR });
 
-    const totalDebt = loanViews.reduce((a, l) => a + (l.s.finished ? 0 : l.s.remaining), 0);
+    const totalToPay = loanViews.reduce((a, l) => a + (l.s.finished ? 0 : l.s.toPay), 0);
     const oneOffTotal = oneOff.reduce((a, o) => a + (o.type === "INCOME" ? o.amount : -o.amount), 0);
     return {
       incomeRec, expenseRec, oneOff, oneOffTotal, loanViews, activeLoans, installmentsTotal,
-      totalIncome, totalExpenses, leftover, catSegs, totalDebt,
+      totalIncome, totalExpenses, leftover, catSegs, totalToPay,
       shared, wifeOwes, myExpenses,
     };
   }, [items, loans, cats, month, incomeAmounts]);
@@ -362,23 +363,26 @@ export default function Budget() {
             ) : (
               <>
                 <div className="loan-topline">
-                  <div><span className="muted">Zadłużenie łącznie</span><b className="pnl-down">{zl(view.totalDebt)}</b></div>
                   <div><span className="muted">Raty miesięcznie</span><b>{zl(view.installmentsTotal)}</b></div>
+                  <div><span className="muted">Do spłaty łącznie</span><b>{zl(view.totalToPay)}</b></div>
                 </div>
                 <div className="kl-rows">
                   {view.loanViews.map((l) => (
                     <div className={`kl-row ${l.s.finished ? "done" : ""}`} key={l.id}>
                       <div className="kl-row-name">
                         <b>{l.name}{l.s.finished && <span className="badge ok">spłacony</span>}</b>
-                        <span className="muted">do {l.s.endMonth}</span>
+                        <span className="muted">do {fmtMY(l.s.endMonth)}</span>
                       </div>
                       <div className="kl-row-bar">
-                        <div className="bud-bar"><span style={{ width: `${l.s.pct}%`, background: LOANS_COLOR }} /></div>
-                        <span className="muted">≈ {l.s.left} rat · spłacono {Math.round(l.s.pct)}%</span>
+                        {l.s.pct != null && <div className="bud-bar"><span style={{ width: `${l.s.pct}%`, background: LOANS_COLOR }} /></div>}
+                        <span className="muted">
+                          {l.s.finished ? "spłacony" : `zostało ${l.s.left} rat`}
+                          {l.s.pct != null && !l.s.finished && ` · ${Math.round(l.s.pct)}%`}
+                        </span>
                       </div>
                       <div className="kl-row-vals">
                         <b>{zl(l.installment)}</b>
-                        <span className="muted">zostało {zl(l.s.remaining)}</span>
+                        <span className="muted">/mies.</span>
                       </div>
                       <RowMenu label="Menu kredytu" items={[
                         { label: "Edytuj", onClick: () => setLoanModal({ edit: l }) },

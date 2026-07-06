@@ -134,9 +134,10 @@ Prosty tracker miesięcznego budżetu — wszystko lokalnie w SQLite, bez logowa
 - **Wydatki stałe** mają stałą kwotę powtarzaną w każdym miesiącu; kwotę zmienisz klikając w nią (inline)
 - **Wydatki dodatkowe** — pozycje jednorazowe przypięte do konkretnego miesiąca (np. ubezpieczenie auta,
   nadpłata kredytu); liczą się tylko w swoim miesiącu
-- **Kredyty (model snapshot)** — podajesz stan bieżący: kwota pierwotna (do paska %), pozostało do spłaty
-  (wg banku), aktualna rata i miesiąc ostatniej raty. Nadpłata albo zmiana oprocentowania to zwykła edycja
-  pól — bez modelowania odsetek. Rata aktywnego kredytu doklejana jest automatycznie do wydatków stałych
+- **Kredyty (zobowiązanie miesięczne)** — bez łączenia z bankiem i bez śledzenia salda: podajesz ratę
+  i ile rat zostało do końca (liczba odlicza się sama co miesiąc). Opcjonalnie łączna liczba rat — wtedy
+  pojawia się pasek postępu. Nadpłata albo zmiana oprocentowania to edycja raty i liczby pozostałych rat.
+  Rata aktywnego kredytu doklejana jest automatycznie do wydatków stałych
 - **Dzielenie kosztów z partnerem** — przy wydatku lub racie zaznaczasz „koszt dzielony" i podajesz udział
   partnera; panel **„Rozliczenie z partnerem"** sumuje, ile ma Ci oddać w danym miesiącu
 - **Kategorie** — własne nazwy i kolory, kolejność zmieniana przeciąganiem (drag & drop); kolejność steruje

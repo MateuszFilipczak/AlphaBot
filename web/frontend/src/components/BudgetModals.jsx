@@ -3,7 +3,7 @@ import {
   addBudgetCategory, addBudgetItem, addBudgetLoan, deleteBudgetCategory,
   reorderBudgetCategories, updateBudgetCategory, updateBudgetItem, updateBudgetLoan,
 } from "../api.js";
-import { monthKey } from "../budget.js";
+import { addMonths, monthKey, monthLabel, monthsBetween } from "../budget.js";
 
 // Add/edit an income or expense entry. `type` fixes income vs expense; `edit`
 // switches to PUT. `categories` are the user's categories of this kind. A
@@ -128,14 +128,16 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
   );
 }
 
-// Add/edit a loan (snapshot model): original amount, current outstanding
-// balance, current installment, and the last-payment month.
+// Add/edit a loan (monthly-obligation model): the installment, how many
+// installments remain (→ last-payment month; the count then decrements each
+// month), and an optional original count that drives the progress bar.
 export function LoanModal({ edit = null, onClose, onSaved }) {
+  // remaining installments implied by a stored end_month (relative to now)
+  const editLeft = edit ? Math.max(0, monthsBetween(monthKey(), edit.end_month) + 1) : "";
   const [name, setName] = useState(edit?.name ?? "");
-  const [principal, setPrincipal] = useState(edit ? String(edit.principal) : "");
-  const [remaining, setRemaining] = useState(edit ? String(edit.remaining) : "");
   const [installment, setInstallment] = useState(edit ? String(edit.installment) : "");
-  const [endMonth, setEndMonth] = useState(edit?.end_month ?? monthKey());
+  const [ratLeft, setRatLeft] = useState(edit ? String(editLeft) : "");
+  const [total, setTotal] = useState(edit?.installments_total ? String(edit.installments_total) : "");
   const [note, setNote] = useState(edit?.note ?? "");
   const [shared, setShared] = useState(edit && edit.shared_installment > 0);
   const [sharedInst, setSharedInst] = useState(edit?.shared_installment ? String(edit.shared_installment) : "");
@@ -143,27 +145,26 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
 
   const inst = parseFloat(installment);
-  const rem = parseFloat(remaining) || 0;
-  const prin = parseFloat(principal) || 0;
-  const leftRat = inst > 0 ? Math.ceil(rem / inst) : null;
-  const pct = prin > 0 ? Math.min(100, Math.max(0, ((prin - rem) / prin) * 100)) : null;
+  const left = parseInt(ratLeft, 10);
+  const tot = parseInt(total, 10);
+  const endMonth = left > 0 ? addMonths(monthKey(), left - 1) : null;
+  const pct = tot > 0 && left >= 0 ? Math.min(100, Math.max(0, ((tot - left) / tot) * 100)) : null;
 
   const submit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return setError("Podaj nazwę kredytu.");
     if (!(inst > 0)) return setError("Rata musi być większa od zera.");
-    if (!/^\d{4}-\d{2}$/.test(endMonth)) return setError("Wybierz miesiąc ostatniej raty.");
-    if (rem > prin && prin > 0) return setError("Pozostało nie może przekraczać kwoty pierwotnej.");
+    if (!(left > 0)) return setError("Podaj ile rat zostało do końca.");
+    if (total && tot < left) return setError("Łączna liczba rat nie może być mniejsza niż pozostała.");
     const sh = shared ? parseFloat(sharedInst) || 0 : 0;
     if (sh > inst) return setError("Udział partnera nie może przekraczać raty.");
     setSaving(true);
     setError(null);
     const body = {
       name: name.trim(),
-      principal: prin,
-      remaining: rem,
       installment: inst,
       end_month: endMonth,
+      installments_total: total ? tot : null,
       note: note.trim() || null,
       shared_installment: sh,
     };
@@ -187,29 +188,21 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
         </div>
         <div className="field-row">
           <div className="field">
-            <label>Kwota pierwotna (zł)</label>
-            <input type="number" step="any" min="0" value={principal} onChange={(e) => setPrincipal(e.target.value)}
-              placeholder="ile wynosił kredyt" />
-          </div>
-          <div className="field">
-            <label>Pozostało do spłaty (zł)</label>
-            <input type="number" step="any" min="0" value={remaining} onChange={(e) => setRemaining(e.target.value)}
-              placeholder="stan wg banku" />
-          </div>
-        </div>
-        <div className="field-row">
-          <div className="field">
-            <label>Aktualna rata (zł / mies.)</label>
+            <label>Miesięczna rata (zł)</label>
             <input type="number" step="any" min="0" value={installment} onChange={(e) => setInstallment(e.target.value)} />
           </div>
           <div className="field">
-            <label>Ostatnia rata (miesiąc)</label>
-            <input type="month" value={endMonth} onChange={(e) => setEndMonth(e.target.value)} />
+            <label>Ile rat zostało do końca</label>
+            <input type="number" step="1" min="1" value={ratLeft} onChange={(e) => setRatLeft(e.target.value)} placeholder="np. 24" />
           </div>
         </div>
-        {(leftRat != null || pct != null) && (
+        <div className="field">
+          <label>Łączna liczba rat (opcjonalna — dla paska postępu)</label>
+          <input type="number" step="1" min="1" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="np. 60" />
+        </div>
+        {endMonth && (
           <div className="field hint">
-            {leftRat != null && <>≈ {leftRat} rat do spłaty</>}
+            Ostatnia rata: {monthLabel(endMonth)}
             {pct != null && <> · spłacono {pct.toFixed(0)}%</>}
           </div>
         )}
