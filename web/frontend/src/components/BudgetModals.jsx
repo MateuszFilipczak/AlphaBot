@@ -17,6 +17,8 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
   const [oneOff, setOneOff] = useState(edit ? edit.month != null : defaultOneOff);
   const [month, setMonth] = useState(edit?.month ?? viewMonth ?? monthKey());
   const [note, setNote] = useState(edit?.note ?? "");
+  const [shared, setShared] = useState(edit && edit.shared_amount > 0);
+  const [sharedAmount, setSharedAmount] = useState(edit?.shared_amount ? String(edit.shared_amount) : "");
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -25,6 +27,8 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
     if (!name.trim()) return setError("Podaj nazwę.");
     const value = parseFloat(amount);
     if (!(value >= 0) || amount === "") return setError("Podaj kwotę.");
+    const sh = shared ? parseFloat(sharedAmount) || 0 : 0;
+    if (sh > value) return setError("Udział żony nie może przekraczać kwoty.");
     setSaving(true);
     setError(null);
     const body = {
@@ -33,6 +37,7 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
       category_id: categoryId ? Number(categoryId) : null,
       month: oneOff ? month : null,
       note: note.trim() || null,
+      shared_amount: sh,
     };
     try {
       if (edit) await updateBudgetItem(edit.id, body);
@@ -77,6 +82,24 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
             <input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
           </div>
         )}
+        {!isIncome && (
+          <>
+            <label className="checkline">
+              <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+              Koszt dzielony z żoną
+            </label>
+            {shared && (
+              <div className="field">
+                <label>Udział żony (zł) — ile ma oddać</label>
+                <input type="number" step="any" min="0" value={sharedAmount}
+                  onChange={(e) => setSharedAmount(e.target.value)} placeholder="np. 1500" />
+                {parseFloat(amount) > 0 && parseFloat(sharedAmount) >= 0 && (
+                  <div className="hint">Twój udział: {(parseFloat(amount) - (parseFloat(sharedAmount) || 0)).toLocaleString("pl-PL")} zł</div>
+                )}
+              </div>
+            )}
+          </>
+        )}
         <div className="field">
           <label>Notatka (opcjonalna)</label>
           <input value={note} onChange={(e) => setNote(e.target.value)} />
@@ -101,6 +124,8 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
   const [count, setCount] = useState(edit ? String(edit.installments_count) : "");
   const [start, setStart] = useState(edit?.start_month ?? monthKey());
   const [note, setNote] = useState(edit?.note ?? "");
+  const [shared, setShared] = useState(edit && edit.shared_installment > 0);
+  const [sharedInst, setSharedInst] = useState(edit?.shared_installment ? String(edit.shared_installment) : "");
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -114,6 +139,8 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
     if (!(inst > 0)) return setError("Rata musi być większa od zera.");
     if (!(cnt > 0)) return setError("Podaj liczbę rat.");
     if (!/^\d{4}-\d{2}$/.test(start)) return setError("Wybierz miesiąc pierwszej raty.");
+    const sh = shared ? parseFloat(sharedInst) || 0 : 0;
+    if (sh > inst) return setError("Udział żony nie może przekraczać raty.");
     setSaving(true);
     setError(null);
     const body = {
@@ -123,6 +150,7 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
       installments_count: cnt,
       start_month: start,
       note: note.trim() || null,
+      shared_installment: sh,
     };
     try {
       if (edit) await updateBudgetLoan(edit.id, body);
@@ -165,6 +193,20 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
         </div>
         {total != null && (
           <div className="field hint">Suma do spłaty: {total.toLocaleString("pl-PL")} zł ({cnt} rat)</div>
+        )}
+        <label className="checkline">
+          <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+          Rata dzielona z żoną
+        </label>
+        {shared && (
+          <div className="field">
+            <label>Udział żony w racie (zł) — ile ma oddać</label>
+            <input type="number" step="any" min="0" value={sharedInst}
+              onChange={(e) => setSharedInst(e.target.value)} placeholder="np. 1500" />
+            {inst > 0 && (
+              <div className="hint">Twój udział w racie: {(inst - (parseFloat(sharedInst) || 0)).toLocaleString("pl-PL")} zł</div>
+            )}
+          </div>
         )}
         <div className="field">
           <label>Notatka (opcjonalna)</label>

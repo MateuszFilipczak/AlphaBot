@@ -58,6 +58,18 @@ export default function Budget() {
     const totalExpenses = active.filter((i) => i.type === "EXPENSE").reduce((a, i) => a + i.amount, 0) + installmentsTotal;
     const leftover = totalIncome - totalExpenses;
 
+    // koszty dzielone z żoną: her share across expenses (recurring + one-off)
+    // and active loans, this month
+    const sharedItems = active
+      .filter((i) => i.type === "EXPENSE" && i.shared_amount > 0)
+      .map((i) => ({ id: `i${i.id}`, name: i.name, total: i.amount, share: i.shared_amount }));
+    const sharedLoans = activeLoans
+      .filter((l) => l.shared_installment > 0)
+      .map((l) => ({ id: `l${l.id}`, name: l.name, total: l.installment, share: l.shared_installment }));
+    const shared = [...sharedItems, ...sharedLoans];
+    const wifeOwes = shared.reduce((a, s) => a + s.share, 0);
+    const myExpenses = totalExpenses - wifeOwes;
+
     // struktura wydatków: every expense this month (recurring + one-off) by
     // category, plus loans as one synthetic slice
     const byCat = new Map();
@@ -71,10 +83,11 @@ export default function Budget() {
     if (installmentsTotal > 0) catSegs.unshift({ label: "Raty kredytów", amount: installmentsTotal, color: LOANS_COLOR });
 
     const totalDebt = loanViews.reduce((a, l) => a + (l.s.finished ? 0 : l.s.remaining), 0);
+    const oneOffTotal = oneOff.reduce((a, o) => a + (o.type === "INCOME" ? o.amount : -o.amount), 0);
     return {
-      incomeRec, expenseRec, oneOff, loanViews, activeLoans, installmentsTotal,
+      incomeRec, expenseRec, oneOff, oneOffTotal, loanViews, activeLoans, installmentsTotal,
       totalIncome, totalExpenses, leftover, catSegs, totalDebt,
-      savingsRate: totalIncome > 0 ? Math.round((leftover / totalIncome) * 100) : 0,
+      shared, wifeOwes, myExpenses,
     };
   }, [items, loans, cats, month]);
 
@@ -118,7 +131,9 @@ export default function Budget() {
             <div className="bud-num"><span className="lbl">Przychody</span><span className="val pnl-up">{zl(view.totalIncome)}</span></div>
             <div className="bud-num"><span className="lbl">Wydatki</span><span className="val pnl-down">{zl(view.totalExpenses)}</span></div>
             <div className="bud-num"><span className="lbl">Zostaje</span><span className={`val ${pnl(view.leftover)}`}>{zl(view.leftover)}</span></div>
-            <div className="bud-num"><span className="lbl">Stopa oszczędności</span><span className="val">{view.savingsRate}%</span></div>
+            {view.wifeOwes > 0 && (
+              <div className="bud-num"><span className="lbl">Żona ma oddać</span><span className="val accent">{zl(view.wifeOwes)}</span></div>
+            )}
           </section>
 
           {view.catSegs.length > 0 && (
@@ -164,14 +179,16 @@ export default function Budget() {
                 const c = catInfo(e.category_id);
                 return (
                   <div className="bud-row" key={e.id}>
-                    <span><i className="cat-dot" style={{ background: c.color }} />{e.name}<small>{c.name}</small></span>
+                    <span><i className="cat-dot" style={{ background: c.color }} />{e.name}<small>{c.name}</small>
+                      {e.shared_amount > 0 && <span className="split-tag">½ {zl(e.shared_amount)} od żony</span>}</span>
                     <span className="row-end"><b>{zl(e.amount)}</b>{itemMenu(e)}</span>
                   </div>
                 );
               })}
               {view.activeLoans.map((l) => (
                 <div className="bud-row muted-row" key={`loan-${l.id}`}>
-                  <span><i className="cat-dot" style={{ background: LOANS_COLOR }} />{l.name}<small>rata kredytu</small></span>
+                  <span><i className="cat-dot" style={{ background: LOANS_COLOR }} />{l.name}<small>rata kredytu</small>
+                    {l.shared_installment > 0 && <span className="split-tag">½ {zl(l.shared_installment)} od żony</span>}</span>
                   <b>{zl(l.installment)}</b>
                 </div>
               ))}
@@ -187,22 +204,43 @@ export default function Budget() {
             </div>
             {view.oneOff.length === 0 ? (
               <div className="empty small">Brak jednorazowych pozycji w {monthLabel(month)} (np. ubezpieczenie auta, nadpłata kredytu).</div>
-            ) : view.oneOff.map((o) => {
-              const c = o.type === "EXPENSE" ? catInfo(o.category_id) : null;
-              return (
-                <div className="bud-row" key={o.id}>
-                  <span>
-                    {c && <i className="cat-dot" style={{ background: c.color }} />}
-                    {o.name}<small>{o.type === "INCOME" ? "wpływ" : c.name}</small>
-                  </span>
-                  <span className="row-end">
-                    <b className={o.type === "INCOME" ? "pnl-up" : ""}>{o.type === "INCOME" ? "+" : ""}{zl(o.amount)}</b>
-                    {itemMenu(o)}
-                  </span>
-                </div>
-              );
-            })}
+            ) : (
+              <>
+                {view.oneOff.map((o) => {
+                  const c = o.type === "EXPENSE" ? catInfo(o.category_id) : null;
+                  return (
+                    <div className="bud-row" key={o.id}>
+                      <span>
+                        {c && <i className="cat-dot" style={{ background: c.color }} />}
+                        {o.name}<small>{o.type === "INCOME" ? "wpływ" : c.name}</small>
+                        {o.type === "EXPENSE" && o.shared_amount > 0 && <span className="split-tag">½ {zl(o.shared_amount)} od żony</span>}
+                      </span>
+                      <span className="row-end">
+                        <b className={o.type === "INCOME" ? "pnl-up" : ""}>{o.type === "INCOME" ? "+" : ""}{zl(o.amount)}</b>
+                        {itemMenu(o)}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div className="bud-row total"><span>Razem</span>
+                  <b className={pnl(view.oneOffTotal)}>{view.oneOffTotal >= 0 ? "+" : ""}{zl(view.oneOffTotal)}</b></div>
+              </>
+            )}
           </div>
+
+          {view.shared.length > 0 && (
+            <div className="bud-panel">
+              <h4>Rozliczenie z żoną — {monthLabel(month)}</h4>
+              {view.shared.map((s) => (
+                <div className="bud-row" key={s.id}>
+                  <span>{s.name}<small>z {zl(s.total)}</small></span>
+                  <b className="accent">{zl(s.share)}</b>
+                </div>
+              ))}
+              <div className="bud-row total"><span>Żona ma oddać</span><b className="accent">{zl(view.wifeOwes)}</b></div>
+              <div className="split-note muted">Twój udział w wydatkach: {zl(view.myExpenses)} (z {zl(view.totalExpenses)})</div>
+            </div>
+          )}
 
           <div className="bud-panel">
             <div className="panel-head">

@@ -199,6 +199,14 @@ class BudgetItemIn(BaseModel):
     category_id: int | None = None
     month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")  # None = recurring
     note: str | None = None
+    shared_amount: float = Field(default=0.0, ge=0)  # partner's share of this cost
+
+    @field_validator("shared_amount")
+    @classmethod
+    def _shared_le_amount(cls, v, info):
+        if v > (info.data.get("amount") or 0) + 1e-9:
+            raise ValueError("Kwota dzielona nie może przekraczać kwoty pozycji")
+        return v
 
 
 class BudgetItemUpdate(BaseModel):
@@ -207,6 +215,14 @@ class BudgetItemUpdate(BaseModel):
     category_id: int | None = None
     month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
     note: str | None = None
+    shared_amount: float = Field(default=0.0, ge=0)
+
+    @field_validator("shared_amount")
+    @classmethod
+    def _shared_le_amount(cls, v, info):
+        if v > (info.data.get("amount") or 0) + 1e-9:
+            raise ValueError("Kwota dzielona nie może przekraczać kwoty pozycji")
+        return v
 
 
 class BudgetCategoryIn(BaseModel):
@@ -227,6 +243,14 @@ class BudgetLoanIn(BaseModel):
     installments_count: int = Field(gt=0, le=1200)
     start_month: str = Field(pattern=r"^\d{4}-\d{2}$")  # YYYY-MM
     note: str | None = None
+    shared_installment: float = Field(default=0.0, ge=0)  # partner's share of the installment
+
+    @field_validator("shared_installment")
+    @classmethod
+    def _shared_le_installment(cls, v, info):
+        if v > (info.data.get("installment") or 0) + 1e-9:
+            raise ValueError("Kwota dzielona nie może przekraczać raty")
+        return v
 
 
 class ImportOperationIn(BaseModel):
@@ -987,14 +1011,16 @@ def budget_items(type: str | None = Query(None, pattern="^(INCOME|EXPENSE)$")):
 @app.post("/api/budget/items", status_code=201)
 def create_budget_item(body: BudgetItemIn):
     item_id = db.add_budget_item(
-        body.type, body.name.strip(), body.amount, body.category_id, body.month, body.note)
+        body.type, body.name.strip(), body.amount, body.category_id, body.month,
+        body.note, body.shared_amount)
     return {"id": item_id}
 
 
 @app.put("/api/budget/items/{item_id}")
 def update_budget_item(item_id: int, body: BudgetItemUpdate):
     if not db.update_budget_item(
-        item_id, body.name.strip(), body.amount, body.category_id, body.month, body.note):
+        item_id, body.name.strip(), body.amount, body.category_id, body.month,
+        body.note, body.shared_amount):
         raise HTTPException(status_code=404, detail="Pozycja nie istnieje")
     return {"id": item_id}
 
@@ -1039,7 +1065,7 @@ def budget_loans():
 def create_budget_loan(body: BudgetLoanIn):
     loan_id = db.add_budget_loan(
         body.name.strip(), body.principal, body.installment,
-        body.installments_count, body.start_month, body.note,
+        body.installments_count, body.start_month, body.note, body.shared_installment,
     )
     return {"id": loan_id}
 
@@ -1048,7 +1074,7 @@ def create_budget_loan(body: BudgetLoanIn):
 def update_budget_loan(loan_id: int, body: BudgetLoanIn):
     if not db.update_budget_loan(
         loan_id, body.name.strip(), body.principal, body.installment,
-        body.installments_count, body.start_month, body.note,
+        body.installments_count, body.start_month, body.note, body.shared_installment,
     ):
         raise HTTPException(status_code=404, detail="Kredyt nie istnieje")
     return {"id": loan_id}

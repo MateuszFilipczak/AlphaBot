@@ -208,6 +208,13 @@ def init_db():
             conn.execute("ALTER TABLE budget_items ADD COLUMN category_id INTEGER REFERENCES budget_categories(id)")
         if "month" not in bi_cols:
             conn.execute("ALTER TABLE budget_items ADD COLUMN month TEXT")
+        # shared_amount: the part of this expense someone else covers/owes
+        # (e.g. a partner's share); 0 = fully the user's.
+        if "shared_amount" not in bi_cols:
+            conn.execute("ALTER TABLE budget_items ADD COLUMN shared_amount REAL NOT NULL DEFAULT 0")
+        bl_cols = {r["name"] for r in conn.execute("PRAGMA table_info(budget_loans)")}
+        if "shared_installment" not in bl_cols:
+            conn.execute("ALTER TABLE budget_loans ADD COLUMN shared_installment REAL NOT NULL DEFAULT 0")
         # seed a well-separated default palette ONLY into an empty table, so
         # user edits/deletions stick (same posture as the starter portfolios)
         if conn.execute("SELECT COUNT(*) AS n FROM budget_categories").fetchone()["n"] == 0:
@@ -701,26 +708,27 @@ def get_budget_items(type_: str | None = None) -> list[dict]:
 
 
 def add_budget_item(type_: str, name: str, amount: float, category_id: int | None,
-                    month: str | None, note: str | None) -> int:
+                    month: str | None, note: str | None, shared_amount: float = 0.0) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO budget_items (type, name, amount, category_id, month, note)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (type_, name, amount, category_id, month, note),
+            """INSERT INTO budget_items (type, name, amount, category_id, month, note, shared_amount)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (type_, name, amount, category_id, month, note, shared_amount),
         )
         return cur.lastrowid
 
 
 def update_budget_item(item_id: int, name: str, amount: float, category_id: int | None,
-                       month: str | None, note: str | None) -> bool:
-    """Name/amount/category/month/note are editable; type is immutable (delete
-    and re-add to flip income↔expense). month NULL = recurring, 'YYYY-MM' =
-    one-off. Returns False if the id doesn't exist."""
+                       month: str | None, note: str | None, shared_amount: float = 0.0) -> bool:
+    """Name/amount/category/month/note/shared are editable; type is immutable
+    (delete and re-add to flip income↔expense). month NULL = recurring,
+    'YYYY-MM' = one-off. Returns False if the id doesn't exist."""
     with get_conn() as conn:
         cur = conn.execute(
-            """UPDATE budget_items SET name = ?, amount = ?, category_id = ?, month = ?, note = ?
+            """UPDATE budget_items
+               SET name = ?, amount = ?, category_id = ?, month = ?, note = ?, shared_amount = ?
                WHERE id = ?""",
-            (name, amount, category_id, month, note, item_id),
+            (name, amount, category_id, month, note, shared_amount, item_id),
         )
         return cur.rowcount > 0
 
@@ -780,25 +788,27 @@ def get_budget_loans() -> list[dict]:
 
 
 def add_budget_loan(name: str, principal: float, installment: float,
-                    installments_count: int, start_month: str, note: str | None) -> int:
+                    installments_count: int, start_month: str, note: str | None,
+                    shared_installment: float = 0.0) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO budget_loans (name, principal, installment, installments_count, start_month, note)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (name, principal, installment, installments_count, start_month, note),
+            """INSERT INTO budget_loans (name, principal, installment, installments_count, start_month, note, shared_installment)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (name, principal, installment, installments_count, start_month, note, shared_installment),
         )
         return cur.lastrowid
 
 
 def update_budget_loan(loan_id: int, name: str, principal: float, installment: float,
-                       installments_count: int, start_month: str, note: str | None) -> bool:
+                       installments_count: int, start_month: str, note: str | None,
+                       shared_installment: float = 0.0) -> bool:
     with get_conn() as conn:
         cur = conn.execute(
             """UPDATE budget_loans
                SET name = ?, principal = ?, installment = ?, installments_count = ?,
-                   start_month = ?, note = ?
+                   start_month = ?, note = ?, shared_installment = ?
                WHERE id = ?""",
-            (name, principal, installment, installments_count, start_month, note, loan_id),
+            (name, principal, installment, installments_count, start_month, note, shared_installment, loan_id),
         )
         return cur.rowcount > 0
 

@@ -135,3 +135,38 @@ def test_loan_validation(client):
     assert client.post("/api/budget/loans", json={**base, "installment": 0}).status_code == 422
     assert client.post("/api/budget/loans", json={**base, "installments_count": 0}).status_code == 422
     assert client.post("/api/budget/loans", json={**base, "start_month": "styczeń"}).status_code == 422
+
+
+# ---- Cost splitting (partner's share) ---------------------------------------
+
+def test_item_shared_amount(client):
+    r = client.post("/api/budget/items", json={
+        "type": "EXPENSE", "name": "Czynsz", "amount": 3500, "shared_amount": 1500,
+    })
+    assert r.status_code == 201
+    iid = r.json()["id"]
+    row = next(x for x in client.get("/api/budget/items").json() if x["id"] == iid)
+    assert row["shared_amount"] == 1500
+
+
+def test_shared_cannot_exceed_amount(client):
+    assert client.post("/api/budget/items", json={
+        "type": "EXPENSE", "name": "X", "amount": 100, "shared_amount": 150,
+    }).status_code == 422
+
+
+def test_loan_shared_installment(client):
+    r = client.post("/api/budget/loans", json={
+        "name": "Wspólny kredyt", "installment": 3500, "installments_count": 60,
+        "start_month": "2025-01", "shared_installment": 1500,
+    })
+    assert r.status_code == 201
+    lid = r.json()["id"]
+    row = next(x for x in client.get("/api/budget/loans").json() if x["id"] == lid)
+    assert row["shared_installment"] == 1500
+
+    # shared > installment rejected
+    assert client.post("/api/budget/loans", json={
+        "name": "Y", "installment": 500, "installments_count": 12,
+        "start_month": "2025-01", "shared_installment": 600,
+    }).status_code == 422
