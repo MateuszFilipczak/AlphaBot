@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ModuleBar from "../components/ModuleNav.jsx";
 import RowMenu from "../components/RowMenu.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
@@ -28,6 +28,14 @@ export default function Budget() {
   const [del, setDel] = useState(null); // {kind, row}
   const [delBusy, setDelBusy] = useState(false);
   const [tick, setTick] = useState(0);
+  const monthInputRef = useRef(null);
+
+  const openMonthPicker = () => {
+    const el = monthInputRef.current;
+    if (!el) return;
+    if (el.showPicker) { try { el.showPicker(); return; } catch { /* fall through */ } }
+    el.focus();
+  };
 
   useEffect(() => {
     getBudgetItems().then(setItems).catch(() => setItems([]));
@@ -159,7 +167,17 @@ export default function Budget() {
         <button className="btn" aria-label="Poprzedni miesiąc" onClick={() => setMonth((m) => addMonths(m, -1))}>‹</button>
         <div className="bmonth-label"><span className="muted">Budżet za</span><b>{monthLabel(month)}</b></div>
         <button className="btn" aria-label="Następny miesiąc" onClick={() => setMonth((m) => addMonths(m, 1))}>›</button>
-        <input className="bmonth-input" type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+        <span className="cal-wrap">
+          <button className="btn cal-btn" aria-label="Wybierz miesiąc" onClick={openMonthPicker}>
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4.5" width="14" height="13" rx="2" /><path d="M3 8h14M7 3v3M13 3v3" />
+            </svg>
+          </button>
+          <input
+            ref={monthInputRef} className="cal-native" type="month" tabIndex={-1}
+            value={month} onChange={(e) => e.target.value && setMonth(e.target.value)}
+          />
+        </span>
         {month !== monthKey() && <button className="btn" onClick={() => setMonth(monthKey())}>Dziś</button>}
         <button className="btn" style={{ marginLeft: "auto" }} onClick={() => setCatModal(true)}>Kategorie</button>
       </div>

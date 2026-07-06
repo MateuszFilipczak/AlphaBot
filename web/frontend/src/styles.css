@@ -62,6 +62,12 @@ button { font: inherit; cursor: pointer; }
 .bmonth-label .muted { font-size: 11.5px; color: var(--muted); }
 .bmonth-label b { font-size: 16px; }
 .bmonth-input { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); padding: 6px 10px; font: inherit; }
+/* month picker reduced to a calendar icon; the native input sits invisibly
+   under it just to host the picker popup (opened via showPicker) */
+.cal-wrap { position: relative; display: inline-flex; }
+.cal-btn { display: inline-flex; align-items: center; padding: 6px 10px; color: var(--ink-2); }
+.cal-btn:hover { color: var(--ink); }
+.cal-native { position: absolute; left: 0; bottom: 0; width: 100%; height: 1px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
 
 .bud-summary.big { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
 @media (max-width: 640px) { .bud-summary.big { grid-template-columns: repeat(2, 1fr); } }
