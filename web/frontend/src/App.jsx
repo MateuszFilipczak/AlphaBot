@@ -238,7 +238,7 @@ export default function App() {
     const list = all.filter((p) => p.currency === cur);
     // a single-portfolio currency opens that portfolio right away; several →
     // its first one; none → the currency's empty state
-    navigate(list.length > 0 ? `/?p=${list[0].id}` : `/?c=${cur}`);
+    navigate(list.length > 0 ? `/gielda?p=${list[0].id}` : `/gielda?c=${cur}`);
   };
 
   const confirmDeletePortfolio = async () => {
@@ -256,7 +256,7 @@ export default function App() {
       const sibling = fresh.find(
         (p) => p.currency === target.currency && p.id !== target.id
       );
-      navigate(sibling ? `/?p=${sibling.id}` : `/?c=${target.currency}`);
+      navigate(sibling ? `/gielda?p=${sibling.id}` : `/gielda?c=${target.currency}`);
       setRefreshTick((t) => t + 1);
     } catch (err) {
       setDeleteError(err.message);
@@ -323,7 +323,7 @@ export default function App() {
               <PortfolioSwitcher
                 portfolios={currencyPortfolios}
                 activeId={portfolioId}
-                onSelect={(id) => navigate(`/?p=${id}`)}
+                onSelect={(id) => navigate(`/gielda?p=${id}`)}
                 onNew={() => setPortfolioModal(true)}
               />
               {portfolio && currencyPortfolios.some((p) => p.id === portfolioId) && (
@@ -375,7 +375,7 @@ export default function App() {
             onSaved={async (id) => {
               setPortfolioModal(false);
               await loadPortfolios();
-              navigate(`/?p=${id}`);
+              navigate(`/gielda?p=${id}`);
             }}
           />
         )}

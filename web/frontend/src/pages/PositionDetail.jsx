@@ -122,7 +122,7 @@ export default function PositionDetail() {
       await deleteTransaction(toDelete.id);
       setToDelete(null);
       // deleting the last transaction of a ticker leaves nothing to show here
-      if (detail.transactions.length <= 1) navigate(`/?p=${portfolioId}`);
+      if (detail.transactions.length <= 1) navigate(`/gielda?p=${portfolioId}`);
       else refresh();
     } catch (err) {
       setDeleteError(err.message);
@@ -171,7 +171,7 @@ export default function PositionDetail() {
 
   return (
     <>
-      <Link className="back" to={`/?p=${portfolioId}`}>
+      <Link className="back" to={`/gielda?p=${portfolioId}`}>
         ← Wróć do portfela {portfolio.name}
       </Link>
 

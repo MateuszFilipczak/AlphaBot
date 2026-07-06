@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App.jsx";
+import Landing from "./pages/Landing.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import PositionDetail from "./pages/PositionDetail.jsx";
 import ModulePlaceholder from "./pages/ModulePlaceholder.jsx";
@@ -13,9 +14,11 @@ createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
+        {/* entry page — pick a module */}
+        <Route path="/" element={<Landing />} />
         {/* Giełda module — the working investment app */}
         <Route element={<App />}>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/gielda" element={<Dashboard />} />
           <Route path="/position/:ticker" element={<PositionDetail />} />
         </Route>
         {/* Budżet module */}

@@ -7,15 +7,15 @@ export const MODULES = [
   { key: "budget", label: "Budżet", to: "/budzet", icon: "wallet",
     hint: "Budżet domowy", accent: "#0ca30c",
     match: (p) => p.startsWith("/budzet") },
-  { key: "stocks", label: "Giełda", to: "/", icon: "chart",
+  { key: "stocks", label: "Giełda", to: "/gielda", icon: "chart",
     hint: "Akcje i ETF-y", accent: "#3987e5",
-    match: (p) => p === "/" || p.startsWith("/position") },
+    match: (p) => p === "/gielda" || p.startsWith("/position") },
   { key: "crypto", label: "Krypto", to: "/krypto", icon: "coin",
     hint: "Kryptowaluty", accent: "#c98500",
     match: (p) => p.startsWith("/krypto") },
 ];
 
-function Icon({ kind }) {
+export function ModuleIcon({ kind }) {
   const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
   switch (kind) {
     case "wallet":
@@ -47,14 +47,14 @@ export default function ModuleBar() {
               className={m.match(pathname) ? "on" : ""}
               onClick={() => navigate(m.to)}
             >
-              <Icon kind={m.icon} /> {m.label}
+              <ModuleIcon kind={m.icon} /> {m.label}
             </button>
           ))}
         </nav>
       </div>
       <div className="mod-ident">
         <span className="mod-ident-ic" style={{ color: active.accent }}>
-          <Icon kind={active.icon} />
+          <ModuleIcon kind={active.icon} />
         </span>
         <b>{active.label}</b>
         <span className="mod-ident-sub">{active.hint}</span>

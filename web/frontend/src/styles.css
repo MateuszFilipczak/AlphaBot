@@ -29,6 +29,30 @@ button { font: inherit; cursor: pointer; }
 
 .app { max-width: 960px; margin: 0 auto; padding: 16px 20px 48px; }
 
+/* ---- Landing (entry page: pick a module) ---- */
+.landing { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.landing-inner { width: 100%; max-width: 720px; text-align: center; }
+.landing-brand { font-size: 48px; font-weight: 800; letter-spacing: -1px; margin: 0; }
+.landing-brand span { color: var(--accent); }
+.landing-sub { color: var(--muted); font-size: 15px; margin: 6px 0 32px; }
+.landing-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 560px) { .landing-tiles { grid-template-columns: 1fr; } }
+.landing-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 28px 18px; border-radius: 16px;
+  background: var(--surface); border: 1px solid var(--border);
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+.landing-tile:hover { border-color: var(--mod); transform: translateY(-3px); background: var(--surface-2); }
+.landing-ic {
+  width: 52px; height: 52px; border-radius: 14px; margin-bottom: 6px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--page); color: var(--mod);
+}
+.landing-ic svg { width: 26px; height: 26px; }
+.landing-tile b { font-size: 17px; }
+.landing-hint { color: var(--muted); font-size: 13px; }
+
 /* ---- Module bar (top-level navigation) ---- */
 .appbar {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
