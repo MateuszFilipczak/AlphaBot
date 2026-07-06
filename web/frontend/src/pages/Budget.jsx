@@ -364,29 +364,25 @@ export default function Budget() {
                   <div><span className="muted">Zadłużenie łącznie</span><b className="pnl-down">{zl(view.totalDebt)}</b></div>
                   <div><span className="muted">Raty miesięcznie</span><b>{zl(view.installmentsTotal)}</b></div>
                 </div>
-                <div className="loan-detail-list">
+                <div className="kl-rows">
                   {view.loanViews.map((l) => (
-                    <div className={`loan-detail ${l.s.finished ? "done" : ""} ${l.s.upcoming ? "soon" : ""}`} key={l.id}>
-                      <div className="ld-top">
-                        <b>{l.name}
-                          {l.s.finished && <span className="badge ok">spłacony</span>}
-                          {l.s.upcoming && <span className="badge">jeszcze nieaktywny</span>}
-                        </b>
-                        <span className="row-end">
-                          <span className="muted">{l.s.paidCount}/{l.installments_count} rat · koniec {addMonths(l.start_month, l.installments_count - 1)}</span>
-                          <RowMenu label="Menu kredytu" items={[
-                            { label: "Edytuj", onClick: () => setLoanModal({ edit: l }) },
-                            { label: "Usuń", danger: true, onClick: () => setDel({ kind: "loan", row: l }) },
-                          ]} />
-                        </span>
+                    <div className={`kl-row ${l.s.finished ? "done" : ""}`} key={l.id}>
+                      <div className="kl-row-name">
+                        <b>{l.name}{l.s.finished && <span className="badge ok">spłacony</span>}</b>
+                        <span className="muted">do {l.s.endMonth}</span>
                       </div>
-                      <div className="bud-bar"><span style={{ width: `${l.s.pct}%`, background: LOANS_COLOR }} /></div>
-                      <div className="ld-grid">
-                        <span><small className="muted">Rata</small>{zl(l.installment)}</span>
-                        <span><small className="muted">Spłacono</small>{zl(l.s.paid)}</span>
-                        <span><small className="muted">Zostało</small>{zl(l.s.remaining)}</span>
-                        <span><small className="muted">Zostało rat</small>{l.s.left}</span>
+                      <div className="kl-row-bar">
+                        <div className="bud-bar"><span style={{ width: `${l.s.pct}%`, background: LOANS_COLOR }} /></div>
+                        <span className="muted">≈ {l.s.left} rat · spłacono {Math.round(l.s.pct)}%</span>
                       </div>
+                      <div className="kl-row-vals">
+                        <b>{zl(l.installment)}</b>
+                        <span className="muted">zostało {zl(l.s.remaining)}</span>
+                      </div>
+                      <RowMenu label="Menu kredytu" items={[
+                        { label: "Edytuj", onClick: () => setLoanModal({ edit: l }) },
+                        { label: "Usuń", danger: true, onClick: () => setDel({ kind: "loan", row: l }) },
+                      ]} />
                     </div>
                   ))}
                 </div>

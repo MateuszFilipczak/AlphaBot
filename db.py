@@ -177,17 +177,20 @@ def init_db():
             )
         """)
         # Loans repaid in equal installments. Month-view derives paid/remaining
-        # /remaining-count as-of the selected month from start_month + count
-        # (pure math on the frontend); principal is the borrowed sum (interest
-        # makes it differ from installment × count).
+        # Snapshot model: the user enters the CURRENT state (outstanding
+        # balance + current installment + last-payment month), which is robust
+        # to in-progress loans, rate changes and overpayments — no attempt to
+        # derive from a start date. principal is the original sum (for the %
+        # bar); a loan counts as a monthly expense in any month ≤ end_month.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS budget_loans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                principal REAL NOT NULL DEFAULT 0 CHECK (principal >= 0),
+                principal REAL NOT NULL DEFAULT 0 CHECK (principal >= 0),   -- kwota pierwotna
+                remaining REAL NOT NULL DEFAULT 0 CHECK (remaining >= 0),   -- pozostało do spłaty
                 installment REAL NOT NULL CHECK (installment > 0),
-                installments_count INTEGER NOT NULL CHECK (installments_count > 0),
-                start_month TEXT NOT NULL,          -- 'YYYY-MM'
+                end_month TEXT NOT NULL,                                    -- 'YYYY-MM' ostatnia rata
+                shared_installment REAL NOT NULL DEFAULT 0,
                 note TEXT
             )
         """)
@@ -215,6 +218,46 @@ def init_db():
         bl_cols = {r["name"] for r in conn.execute("PRAGMA table_info(budget_loans)")}
         if "shared_installment" not in bl_cols:
             conn.execute("ALTER TABLE budget_loans ADD COLUMN shared_installment REAL NOT NULL DEFAULT 0")
+            bl_cols.add("shared_installment")
+        # migrate old (installment × count from start_month) → snapshot model
+        if "end_month" not in bl_cols:
+            cur_month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+            def _add_months(m, n):
+                idx = int(m[:4]) * 12 + (int(m[5:7]) - 1) + n
+                return f"{idx // 12}-{idx % 12 + 1:02d}"
+
+            def _months_between(a, b):
+                return (int(b[:4]) - int(a[:4])) * 12 + (int(b[5:7]) - int(a[5:7]))
+
+            conn.execute("""
+                CREATE TABLE budget_loans_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    principal REAL NOT NULL DEFAULT 0 CHECK (principal >= 0),
+                    remaining REAL NOT NULL DEFAULT 0 CHECK (remaining >= 0),
+                    installment REAL NOT NULL CHECK (installment > 0),
+                    end_month TEXT NOT NULL,
+                    shared_installment REAL NOT NULL DEFAULT 0,
+                    note TEXT
+                )
+            """)
+            for r in conn.execute("SELECT * FROM budget_loans").fetchall():
+                count, start, inst = r["installments_count"], r["start_month"], r["installment"]
+                elapsed = max(0, min(count, _months_between(start, cur_month) + 1))
+                remaining = max(0.0, (count - elapsed) * inst)
+                conn.execute(
+                    """INSERT INTO budget_loans_new (id, name, principal, remaining, installment, end_month, shared_installment, note)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (r["id"], r["name"], r["principal"], remaining, inst,
+                     _add_months(start, count - 1), r["shared_installment"], r["note"]),
+                )
+            old_seq = conn.execute("SELECT seq FROM sqlite_sequence WHERE name='budget_loans'").fetchone()
+            conn.execute("DROP TABLE budget_loans")
+            conn.execute("ALTER TABLE budget_loans_new RENAME TO budget_loans")
+            if old_seq is not None:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='budget_loans'")
+                conn.execute("INSERT INTO sqlite_sequence (name, seq) VALUES ('budget_loans', ?)", (old_seq["seq"],))
         # Recurring INCOME sources hold a name/category only; the actual amount
         # is entered per month (salary varies), stored here. Expenses stay
         # fixed. On first creation, seed the current month from any income
@@ -835,28 +878,27 @@ def get_budget_loans() -> list[dict]:
         return [dict(r) for r in conn.execute("SELECT * FROM budget_loans ORDER BY id").fetchall()]
 
 
-def add_budget_loan(name: str, principal: float, installment: float,
-                    installments_count: int, start_month: str, note: str | None,
-                    shared_installment: float = 0.0) -> int:
+def add_budget_loan(name: str, principal: float, remaining: float, installment: float,
+                    end_month: str, note: str | None, shared_installment: float = 0.0) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            """INSERT INTO budget_loans (name, principal, installment, installments_count, start_month, note, shared_installment)
+            """INSERT INTO budget_loans (name, principal, remaining, installment, end_month, note, shared_installment)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (name, principal, installment, installments_count, start_month, note, shared_installment),
+            (name, principal, remaining, installment, end_month, note, shared_installment),
         )
         return cur.lastrowid
 
 
-def update_budget_loan(loan_id: int, name: str, principal: float, installment: float,
-                       installments_count: int, start_month: str, note: str | None,
+def update_budget_loan(loan_id: int, name: str, principal: float, remaining: float,
+                       installment: float, end_month: str, note: str | None,
                        shared_installment: float = 0.0) -> bool:
     with get_conn() as conn:
         cur = conn.execute(
             """UPDATE budget_loans
-               SET name = ?, principal = ?, installment = ?, installments_count = ?,
-                   start_month = ?, note = ?, shared_installment = ?
+               SET name = ?, principal = ?, remaining = ?, installment = ?,
+                   end_month = ?, note = ?, shared_installment = ?
                WHERE id = ?""",
-            (name, principal, installment, installments_count, start_month, note, shared_installment, loan_id),
+            (name, principal, remaining, installment, end_month, note, shared_installment, loan_id),
         )
         return cur.rowcount > 0
 

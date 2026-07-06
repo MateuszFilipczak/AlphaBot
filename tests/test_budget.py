@@ -108,33 +108,34 @@ def test_category_validation(client):
 
 def test_loan_crud(client):
     r = client.post("/api/budget/loans", json={
-        "name": "Samochód", "principal": 60000, "installment": 1200,
-        "installments_count": 48, "start_month": "2024-01",
+        "name": "Samochód", "principal": 60000, "remaining": 42000,
+        "installment": 1200, "end_month": "2028-12",
     })
     assert r.status_code == 201, r.text
     lid = r.json()["id"]
 
     row = next(x for x in client.get("/api/budget/loans").json() if x["id"] == lid)
-    assert (row["installment"], row["installments_count"], row["start_month"]) == (1200, 48, "2024-01")
+    assert (row["installment"], row["remaining"], row["end_month"]) == (1200, 42000, "2028-12")
 
+    # overpayment + rate change: just edit the current state
     r = client.put(f"/api/budget/loans/{lid}", json={
-        "name": "Samochód", "principal": 60000, "installment": 1250,
-        "installments_count": 48, "start_month": "2024-01", "note": "podwyżka raty",
+        "name": "Samochód", "principal": 60000, "remaining": 35000,
+        "installment": 1250, "end_month": "2028-06", "note": "nadpłata",
     })
     assert r.status_code == 200
     row = next(x for x in client.get("/api/budget/loans").json() if x["id"] == lid)
-    assert row["installment"] == 1250 and row["note"] == "podwyżka raty"
+    assert (row["remaining"], row["installment"], row["end_month"]) == (35000, 1250, "2028-06")
 
     assert client.delete(f"/api/budget/loans/{lid}").status_code == 200
     assert all(x["id"] != lid for x in client.get("/api/budget/loans").json())
 
 
 def test_loan_validation(client):
-    base = {"name": "L", "installment": 100, "installments_count": 12, "start_month": "2025-01"}
-    assert client.post("/api/budget/loans", json={**base, "start_month": "2025/01"}).status_code == 422
+    base = {"name": "L", "installment": 100, "remaining": 500, "end_month": "2027-01"}
+    assert client.post("/api/budget/loans", json={**base, "end_month": "2027/01"}).status_code == 422
     assert client.post("/api/budget/loans", json={**base, "installment": 0}).status_code == 422
-    assert client.post("/api/budget/loans", json={**base, "installments_count": 0}).status_code == 422
-    assert client.post("/api/budget/loans", json={**base, "start_month": "styczeń"}).status_code == 422
+    assert client.post("/api/budget/loans", json={**base, "remaining": -5}).status_code == 422
+    assert client.post("/api/budget/loans", json={**base, "end_month": "styczeń"}).status_code == 422
 
 
 # ---- Cost splitting (partner's share) ---------------------------------------
@@ -157,8 +158,8 @@ def test_shared_cannot_exceed_amount(client):
 
 def test_loan_shared_installment(client):
     r = client.post("/api/budget/loans", json={
-        "name": "Wspólny kredyt", "installment": 3500, "installments_count": 60,
-        "start_month": "2025-01", "shared_installment": 1500,
+        "name": "Wspólny kredyt", "principal": 210000, "remaining": 180000,
+        "installment": 3500, "end_month": "2030-01", "shared_installment": 1500,
     })
     assert r.status_code == 201
     lid = r.json()["id"]
@@ -167,8 +168,8 @@ def test_loan_shared_installment(client):
 
     # shared > installment rejected
     assert client.post("/api/budget/loans", json={
-        "name": "Y", "installment": 500, "installments_count": 12,
-        "start_month": "2025-01", "shared_installment": 600,
+        "name": "Y", "installment": 500, "remaining": 6000,
+        "end_month": "2027-01", "shared_installment": 600,
     }).status_code == 422
 
 

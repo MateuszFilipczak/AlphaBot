@@ -24,27 +24,28 @@ export const monthLabel = (m) => {
   return `${PL_MONTHS[mo - 1]} ${y}`;
 };
 
-// Loan state as of a selected month: how many installments have been paid by
-// then, what remains, and whether the loan is active that month (an ended or
-// not-yet-started loan doesn't count toward that month's expenses).
+// Loan state (snapshot model) as of a selected month: the loan counts as a
+// monthly expense in any month up to end_month; % is paid vs the original
+// principal; remaining installments are estimated from the outstanding
+// balance ÷ installment (so overpayments show up).
 export function loanState(loan, month) {
-  const elapsed = Math.max(0, Math.min(loan.installments_count, monthsBetween(loan.start_month, month) + 1));
-  const paidCount = elapsed;
-  const left = loan.installments_count - paidCount;
-  const total = loan.installments_count * loan.installment; // suma do spłaty
-  const paid = paidCount * loan.installment;
-  const endMonth = addMonths(loan.start_month, loan.installments_count - 1);
-  const active = month >= loan.start_month && month <= endMonth;
+  const remaining = loan.remaining ?? 0;
+  const principal = loan.principal ?? 0;
+  const finished = month > loan.end_month || remaining <= 0;
+  const active = month <= loan.end_month && remaining > 0;
+  const paid = Math.max(0, principal - remaining);
+  const pct = principal > 0
+    ? Math.min(100, Math.max(0, (paid / principal) * 100))
+    : (finished ? 100 : 0);
+  const left = loan.installment > 0 ? Math.ceil(remaining / loan.installment) : 0;
   return {
     active,
-    paidCount,
-    left,
-    total,
+    finished,
+    upcoming: false,
     paid,
-    remaining: total - paid,
-    pct: (paidCount / loan.installments_count) * 100,
-    endMonth,
-    finished: month > endMonth,
-    upcoming: month < loan.start_month,
+    remaining,
+    pct,
+    left,           // szacowana liczba pozostałych rat
+    endMonth: loan.end_month,
   };
 }

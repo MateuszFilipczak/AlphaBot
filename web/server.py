@@ -238,10 +238,10 @@ class BudgetCategoryUpdate(BaseModel):
 
 class BudgetLoanIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
-    principal: float = Field(default=0.0, ge=0)
-    installment: float = Field(gt=0)
-    installments_count: int = Field(gt=0, le=1200)
-    start_month: str = Field(pattern=r"^\d{4}-\d{2}$")  # YYYY-MM
+    principal: float = Field(default=0.0, ge=0)      # kwota pierwotna (dla %)
+    remaining: float = Field(default=0.0, ge=0)      # pozostało do spłaty (bank)
+    installment: float = Field(gt=0)                 # aktualna rata
+    end_month: str = Field(pattern=r"^\d{4}-\d{2}$")  # miesiąc ostatniej raty
     note: str | None = None
     shared_installment: float = Field(default=0.0, ge=0)  # partner's share of the installment
 
@@ -1082,8 +1082,8 @@ def budget_loans():
 @app.post("/api/budget/loans", status_code=201)
 def create_budget_loan(body: BudgetLoanIn):
     loan_id = db.add_budget_loan(
-        body.name.strip(), body.principal, body.installment,
-        body.installments_count, body.start_month, body.note, body.shared_installment,
+        body.name.strip(), body.principal, body.remaining, body.installment,
+        body.end_month, body.note, body.shared_installment,
     )
     return {"id": loan_id}
 
@@ -1091,8 +1091,8 @@ def create_budget_loan(body: BudgetLoanIn):
 @app.put("/api/budget/loans/{loan_id}")
 def update_budget_loan(loan_id: int, body: BudgetLoanIn):
     if not db.update_budget_loan(
-        loan_id, body.name.strip(), body.principal, body.installment,
-        body.installments_count, body.start_month, body.note, body.shared_installment,
+        loan_id, body.name.strip(), body.principal, body.remaining, body.installment,
+        body.end_month, body.note, body.shared_installment,
     ):
         raise HTTPException(status_code=404, detail="Kredyt nie istnieje")
     return {"id": loan_id}

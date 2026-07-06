@@ -750,6 +750,57 @@ h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
 .ld-grid span { display: flex; flex-direction: column; font-weight: 700; font-size: 14px; }
 .ld-grid small { font-weight: 400; font-size: 11px; margin-bottom: 1px; }
 
+/* ---- Loans view proposals (lab round 11) ---- */
+.kl-stage { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 14px; }
+.kl-topline { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 14px; }
+.kl-topline b { display: block; font-size: 18px; font-weight: 800; }
+.kl-topline .muted { font-size: 12px; }
+.kl-bar { height: 7px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.kl-bar span { display: block; height: 100%; border-radius: 4px; }
+.kl-ring { border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; }
+.kl-ring-hole { width: 70%; height: 70%; border-radius: 50%; background: var(--surface); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+
+/* K1 rows */
+.kl-rows { display: flex; flex-direction: column; }
+.kl-row { display: grid; grid-template-columns: 1.4fr 1.4fr 1fr auto; gap: 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+.kl-row:last-child { border-bottom: 0; }
+.kl-row.done { opacity: 0.55; }
+.kl-row-name { display: flex; flex-direction: column; gap: 1px; }
+.kl-row-name .muted { font-size: 12px; }
+.kl-row-bar { display: flex; flex-direction: column; gap: 4px; }
+.kl-row-bar .muted { font-size: 11.5px; }
+.kl-row-vals { text-align: right; display: flex; flex-direction: column; gap: 1px; }
+.kl-row-vals .muted { font-size: 11.5px; }
+@media (max-width: 640px) { .kl-row { grid-template-columns: 1fr; gap: 6px; } .kl-row-vals { text-align: left; } }
+
+/* K2 ring cards */
+.kl-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (max-width: 720px) { .kl-cards { grid-template-columns: 1fr; } }
+.kl-card { display: flex; gap: 14px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.kl-card-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
+.kl-card-info b { font-size: 13.5px; }
+
+/* K3 timeline */
+.kl-tl { display: flex; flex-direction: column; gap: 14px; }
+.kl-tl-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.kl-tl-head .muted { font-size: 12px; }
+.kl-tl-track { position: relative; height: 8px; border-radius: 4px; background: var(--surface-2); margin: 7px 0; overflow: visible; }
+.kl-tl-done { position: absolute; left: 0; top: 0; height: 100%; border-radius: 4px; background: var(--accent); }
+.kl-tl-now { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px; background: var(--ink); transform: translateX(-50%); }
+.kl-tl-foot { font-size: 12px; }
+
+/* K4 big cards */
+.kl-big { display: flex; flex-direction: column; gap: 10px; }
+.kl-big-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.kl-big-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.kl-big-top .muted { font-size: 12px; }
+.kl-big-remaining { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 8px; }
+.kl-big-remaining b { font-size: 22px; font-weight: 800; }
+.kl-big-remaining .muted { font-size: 12px; }
+.kl-big-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+.kl-big-grid span { display: flex; flex-direction: column; font-weight: 700; font-size: 14px; }
+.kl-big-grid small { font-weight: 400; font-size: 11px; margin-bottom: 1px; }
+
 /* ---- Budget layout proposals (lab round 10) ---- */
 .lb-stage { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 14px; }
 .arr-fixed { color: var(--muted); font-size: 12px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; margin: 4px 0 12px; }
