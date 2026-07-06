@@ -7,6 +7,7 @@ import DepositModal from "./components/DepositModal.jsx";
 import PortfolioModal from "./components/PortfolioModal.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
 import RowMenu from "./components/RowMenu.jsx";
+import ModuleBar from "./components/ModuleNav.jsx";
 import { useXtbImport } from "./components/ImportModal.jsx";
 
 // closes a dropdown on outside click or Escape while it's open
@@ -285,10 +286,8 @@ export default function App() {
   return (
     <AppCtx.Provider value={ctx}>
       <div className="app">
+        <ModuleBar />
         <header className="topbar">
-          <a className="brand" href="/">
-            Alpha<span>Bot</span>
-          </a>
           <nav className="switcher" aria-label="Waluta">
             {currencies.map((cur) => (
               <button

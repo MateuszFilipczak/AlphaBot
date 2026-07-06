@@ -2,194 +2,173 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 // ---- Chart lab (/lab) --------------------------------------------------------
-// Round 7: portfolio switcher UX with many portfolios (limit 10/currency).
-// Four interactive mockups on sample data. Not linked from the UI.
+// Round 8: top-level module navigation (Budżet / Giełda / Krypto) — 4 nav-bar
+// mockups, each shown wrapping a stub app shell. Not linked from the UI.
 
-const SAMPLE = [
-  { id: 1, name: "Główny - XTB", value: "12 340 zł", pnl: "+854 zł", up: true },
-  { id: 2, name: "IKE", value: "8 210 zł", pnl: "+1 120 zł", up: true },
-  { id: 3, name: "IKZE", value: "5 430 zł", pnl: "−230 zł", up: false },
-  { id: 4, name: "Emerytura", value: "22 900 zł", pnl: "+3 410 zł", up: true },
-  { id: 5, name: "Dywidendowy", value: "9 750 zł", pnl: "+540 zł", up: true },
-  { id: 6, name: "Spekulacyjny", value: "3 120 zł", pnl: "−870 zł", up: false },
-  { id: 7, name: "ETF świat", value: "14 060 zł", pnl: "+2 030 zł", up: true },
-  { id: 8, name: "Obligacje", value: "6 500 zł", pnl: "+90 zł", up: true },
+const MODULES = [
+  { key: "budget", label: "Budżet", hint: "Budżet domowy", icon: "wallet", accent: "#0ca30c" },
+  { key: "stocks", label: "Giełda", hint: "Akcje i ETF-y", icon: "chart", accent: "#3987e5" },
+  { key: "crypto", label: "Krypto", hint: "Kryptowaluty", icon: "coin", accent: "#c98500" },
 ];
 
-function useClickAway(onAway) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const h = (e) => ref.current && !ref.current.contains(e.target) && onAway();
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [onAway]);
-  return ref;
+function Icon({ kind, size = 18 }) {
+  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  switch (kind) {
+    case "wallet":
+      return <svg width={size} height={size} viewBox="0 0 20 20"><g {...p}><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M2.5 8h15" /><circle cx="14" cy="11.5" r="1.1" fill="currentColor" stroke="none" /></g></svg>;
+    case "chart":
+      return <svg width={size} height={size} viewBox="0 0 20 20"><g {...p}><path d="M3 16V4M3 16h14" /><path d="M6 13l3-3 2.5 2.5L16 6" /></g></svg>;
+    case "coin":
+      return <svg width={size} height={size} viewBox="0 0 20 20"><g {...p}><circle cx="10" cy="10" r="7" /><path d="M8 6.5h3a1.8 1.8 0 0 1 0 3.5H8m0 0h3.3a1.8 1.8 0 0 1 0 3.6H8M8 5v10" /></g></svg>;
+    default:
+      return null;
+  }
 }
 
-function LabCard({ title, desc, children }) {
+// stub content so each nav variant is shown in context, not in a vacuum
+function Shell({ active }) {
+  const m = MODULES.find((x) => x.key === active);
   return (
-    <div className="lab-card">
+    <div className="shell-body">
+      <div className="shell-h">
+        <span className="shell-ic" style={{ color: m.accent }}><Icon kind={m.icon} /></span>
+        <b>{m.label}</b>
+        <span className="shell-sub">{m.hint}</span>
+      </div>
+      <div className="shell-tiles">
+        <div className="shell-tile" /><div className="shell-tile" /><div className="shell-tile" />
+      </div>
+      <div className="shell-line" />
+    </div>
+  );
+}
+
+function LabCard({ title, desc, wide, children }) {
+  return (
+    <div className={`lab-card ${wide ? "lab-card-wide" : ""}`}>
       <h3>{title}</h3>
       <p className="lab-desc">{desc}</p>
-      <div className="sw-stage">{children}</div>
+      <div className="nav-stage">{children}</div>
     </div>
   );
 }
 
-// V1 · Plain dropdown — one control lists every portfolio + "new"
-function VariantDropdown({ items, active, setActive, onNew }) {
-  const [open, setOpen] = useState(false);
-  const ref = useClickAway(() => setOpen(false));
-  const cur = items.find((p) => p.id === active);
+// V1 · Top segmented bar next to the brand
+function VariantTopSeg({ active, setActive }) {
   return (
-    <div className="sw-drop" ref={ref}>
-      <button className="sw-trigger" onClick={() => setOpen((o) => !o)}>
-        <span>{cur?.name}</span>
-        <span className="sw-caret">▾</span>
-      </button>
-      {open && (
-        <div className="menu-pop sw-menu">
-          {items.map((p) => (
-            <button key={p.id} className={p.id === active ? "on" : ""} onClick={() => { setActive(p.id); setOpen(false); }}>
-              {p.id === active ? "✓ " : ""}{p.name}
+    <div className="nv1">
+      <div className="nv1-top">
+        <span className="brand">Alpha<span>Bot</span></span>
+        <div className="nv1-seg">
+          {MODULES.map((m) => (
+            <button key={m.key} className={active === m.key ? "on" : ""} onClick={() => setActive(m.key)}>
+              <Icon kind={m.icon} size={15} /> {m.label}
             </button>
           ))}
-          <div className="sw-sep" />
-          <button className="sw-new" onClick={() => { onNew(); setOpen(false); }}>+ Nowy portfel</button>
         </div>
-      )}
+      </div>
+      <Shell active={active} />
     </div>
   );
 }
 
-// V2 · Tabs + overflow — first few as tabs, the rest behind "+N ▾"
-function VariantOverflow({ items, active, setActive, onNew }) {
-  const [open, setOpen] = useState(false);
-  const ref = useClickAway(() => setOpen(false));
-  const SHOWN = 3;
-  // keep the active portfolio visible even if it's in the overflow bucket
-  let head = items.slice(0, SHOWN);
-  let rest = items.slice(SHOWN);
-  if (!head.some((p) => p.id === active)) {
-    const a = items.find((p) => p.id === active);
-    if (a) { head = [...items.slice(0, SHOWN - 1), a]; rest = items.filter((p) => !head.includes(p)); }
-  }
+// V2 · Left icon sidebar (app-shell)
+function VariantSidebar({ active, setActive }) {
   return (
-    <div className="sw-tabs" ref={ref}>
-      {head.map((p) => (
-        <button key={p.id} className={`sw-tab ${p.id === active ? "on" : ""}`} onClick={() => setActive(p.id)}>
-          {p.name}
-        </button>
-      ))}
-      {rest.length > 0 && (
-        <div className="sw-more">
-          <button className="sw-tab more" onClick={() => setOpen((o) => !o)}>+{rest.length} ▾</button>
-          {open && (
-            <div className="menu-pop sw-menu">
-              {rest.map((p) => (
-                <button key={p.id} onClick={() => { setActive(p.id); setOpen(false); }}>{p.name}</button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      <button className="sw-tab new" onClick={onNew}>+ Nowy</button>
-    </div>
-  );
-}
-
-// V3 · Rich dropdown — each row shows value + P&L
-function VariantRich({ items, active, setActive, onNew }) {
-  const [open, setOpen] = useState(false);
-  const ref = useClickAway(() => setOpen(false));
-  const cur = items.find((p) => p.id === active);
-  return (
-    <div className="sw-drop wide" ref={ref}>
-      <button className="sw-trigger" onClick={() => setOpen((o) => !o)}>
-        <span>{cur?.name}</span>
-        <span className={`sw-mini ${cur?.up ? "up" : "down"}`}>{cur?.pnl}</span>
-        <span className="sw-caret">▾</span>
-      </button>
-      {open && (
-        <div className="menu-pop sw-menu rich">
-          {items.map((p) => (
-            <button key={p.id} className={p.id === active ? "on" : ""} onClick={() => { setActive(p.id); setOpen(false); }}>
-              <span className="sw-rname">{p.name}</span>
-              <span className="sw-rval">{p.value}</span>
-              <span className={`sw-mini ${p.up ? "up" : "down"}`}>{p.pnl}</span>
-            </button>
-          ))}
-          <div className="sw-sep" />
-          <button className="sw-new" onClick={() => { onNew(); setOpen(false); }}>+ Nowy portfel</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// V4 · Scrollable pills — one row, horizontal scroll with fade edges
-function VariantPills({ items, active, setActive, onNew }) {
-  return (
-    <div className="sw-pillbar">
-      <div className="sw-pills">
-        {items.map((p) => (
-          <button key={p.id} className={`sw-pill ${p.id === active ? "on" : ""}`} onClick={() => setActive(p.id)}>
-            {p.name}
+    <div className="nv2">
+      <nav className="nv2-rail">
+        <span className="nv2-logo">A</span>
+        {MODULES.map((m) => (
+          <button
+            key={m.key}
+            className={active === m.key ? "on" : ""}
+            style={active === m.key ? { color: m.accent } : undefined}
+            onClick={() => setActive(m.key)}
+            title={m.label}
+          >
+            <Icon kind={m.icon} size={20} />
+            <span className="nv2-lbl">{m.label}</span>
           </button>
         ))}
-        <button className="sw-pill new" onClick={onNew}>+ Nowy</button>
+      </nav>
+      <div className="nv2-main"><Shell active={active} /></div>
+    </div>
+  );
+}
+
+// V3 · Underlined tabs, module accent follows the active one
+function VariantUnderline({ active, setActive }) {
+  const m = MODULES.find((x) => x.key === active);
+  return (
+    <div className="nv3" style={{ "--mod": m.accent }}>
+      <div className="nv3-bar">
+        <span className="brand">Alpha<span>Bot</span></span>
+        <div className="nv3-tabs">
+          {MODULES.map((x) => (
+            <button key={x.key} className={active === x.key ? "on" : ""} onClick={() => setActive(x.key)}>
+              {x.label}
+            </button>
+          ))}
+        </div>
       </div>
+      <Shell active={active} />
+    </div>
+  );
+}
+
+// V4 · Bottom nav (mobile-first)
+function VariantBottom({ active, setActive }) {
+  return (
+    <div className="nv4">
+      <div className="nv4-main"><Shell active={active} /></div>
+      <nav className="nv4-bar">
+        {MODULES.map((m) => (
+          <button
+            key={m.key}
+            className={active === m.key ? "on" : ""}
+            style={active === m.key ? { color: m.accent } : undefined}
+            onClick={() => setActive(m.key)}
+          >
+            <Icon kind={m.icon} size={20} />
+            <small>{m.label}</small>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
 
 export default function ChartLab() {
-  const [count, setCount] = useState(8); // how many sample portfolios to show
-  const [active, setActive] = useState(1);
-  const [note, setNote] = useState(null);
-  const items = SAMPLE.slice(0, count);
-  const onNew = () => setNote("Kliknięto: + Nowy portfel");
-  const pass = { items, active, setActive: (id) => { setActive(id); setNote(null); }, onNew };
-
+  const [active, setActive] = useState("stocks");
   return (
     <div className="app lab">
       <Link className="back" to="/">← Wróć do aplikacji</Link>
       <h1>
-        Laboratorium — runda 7{" "}
-        <span className="instr-name">przełącznik portfeli · limit 10/walutę · 4 propozycje</span>
+        Laboratorium — runda 8{" "}
+        <span className="instr-name">nawigacja modułów: Budżet · Giełda · Krypto · 4 propozycje</span>
       </h1>
       <p className="note">
-        Obecnie portfele danej waluty to taby obok siebie — przy 10 zaczną się rozjeżdżać.
-        Ustaw liczbę portfeli i sprawdź, jak każdy wariant to znosi. Kliknij, aby przełączyć.
+        Docelowo AlphaBot to kilka modułów. Poniżej propozycje paska nawigacji najwyższego poziomu —
+        kliknij, aby przełączyć moduł; pod paskiem szkic zawartości reaguje na wybór.
       </p>
-      <div className="section-head" style={{ marginBottom: 8 }}>
-        <span className="chart-title">Liczba portfeli do podglądu:</span>
-        <div className="seg">
-          {[3, 6, 8, 10].map((n) => (
-            <button key={n} className={count === n ? "active" : ""} onClick={() => setActive((a) => Math.min(a, n)) || setCount(n)}>
-              {n}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <div className="lab-grid">
-        <LabCard title="V1 · Rozwijane menu" desc="Jeden przycisk z nazwą aktywnego portfela; lista wszystkich + „Nowy portfel”. Kompaktowe, skaluje się do 10 bez rozjeżdżania.">
-          <VariantDropdown {...pass} />
+        <LabCard title="V1 · Górny pasek segmentowy" desc="Przełącznik obok logo, jak obecne waluty. Znajomy, kompaktowy; ikona + etykieta. Dobre dla 3–5 modułów.">
+          <VariantTopSeg active={active} setActive={setActive} />
         </LabCard>
-        <LabCard title="V2 · Taby + nadmiar" desc="Pierwsze 3 jako taby (szybki dostęp), reszta pod „+N ▾”. Aktywny zawsze widoczny. Kompromis: znane taby, ale bez rozlewania.">
-          <VariantOverflow {...pass} />
+        <LabCard title="V2 · Boczny pasek ikon" desc="Stała szpula po lewej (app-shell). Skaluje się na wiele modułów, robi wrażenie „platformy”; zabiera trochę szerokości.">
+          <VariantSidebar active={active} setActive={setActive} />
         </LabCard>
-        <LabCard title="V3 · Menu z wartościami" desc="Rozwijane, ale każdy wiersz pokazuje wartość i wynik portfela — od razu widać, który jak stoi, bez wchodzenia.">
-          <VariantRich {...pass} />
+        <LabCard title="V3 · Zakładki z podkreśleniem" desc="Zakładki pod logo; akcent (kolor podkreślenia) zmienia się wraz z modułem — subtelny sygnał, gdzie jesteś.">
+          <VariantUnderline active={active} setActive={setActive} />
         </LabCard>
-        <LabCard title="V4 · Przewijane piguły" desc="Najmniejsza zmiana: taby zostają, ale w jednym rzędzie z poziomym przewijaniem i wygaszaniem krawędzi.">
-          <VariantPills {...pass} />
+        <LabCard title="V4 · Dolny pasek (mobile)" desc="Nawigacja na dole ekranu, jak w apkach mobilnych. Kciukowo wygodne na telefonie; na desktopie mniej typowe.">
+          <VariantBottom active={active} setActive={setActive} />
         </LabCard>
       </div>
 
-      <div className={`act-picked ${note ? "show" : ""}`}>
-        {note ?? <>Aktywny portfel: <b>{items.find((p) => p.id === active)?.name}</b></>}
+      <div className="act-picked show">
+        Aktywny moduł: <b>{MODULES.find((m) => m.key === active)?.label}</b>
       </div>
     </div>
   );

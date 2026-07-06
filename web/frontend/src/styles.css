@@ -29,6 +29,36 @@ button { font: inherit; cursor: pointer; }
 
 .app { max-width: 960px; margin: 0 auto; padding: 16px 20px 48px; }
 
+/* ---- Module bar (top-level navigation) ---- */
+.appbar {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 10px 0 6px;
+}
+.mod-seg {
+  display: flex; gap: 2px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; padding: 3px;
+}
+.mod-seg button {
+  display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent;
+  color: var(--ink-2); padding: 6px 13px; border-radius: 7px; font-weight: 600; font-size: 13.5px;
+}
+.mod-seg button svg { vertical-align: -2px; }
+.mod-seg button.on { background: var(--page); color: var(--ink); }
+.mod-seg button:not(.on):hover { color: var(--ink); }
+
+/* module-identity strip under the bar: accent icon · name (chip) · hint */
+.mod-ident { display: flex; align-items: center; gap: 9px; padding: 4px 0 14px; }
+.mod-ident-ic { display: inline-flex; }
+.mod-ident b {
+  font-size: 14px; color: var(--ink);
+  background: var(--page); border-radius: 7px; padding: 3px 9px;
+}
+.mod-ident-sub { color: var(--muted); font-size: 13px; }
+
+.module-soon { text-align: center; padding: 70px 20px; }
+.module-soon .soon-badge { font-size: 20px; color: var(--ink); margin: 0 0 10px; }
+.module-soon .muted { color: var(--muted); font-size: 14px; margin-top: 8px; }
+
 /* ---- Header / portfolio switcher ---- */
 .topbar {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
@@ -541,6 +571,70 @@ h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
 }
 .sw-pill.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .sw-pill.new { color: var(--accent); border-style: dashed; }
+
+/* ---- Module navigation proposals (lab round 8) ---- */
+.lab-card-wide { grid-column: 1 / -1; }
+.nav-stage {
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  background: var(--page); min-height: 210px;
+}
+/* stub shell content */
+.shell-body { padding: 14px 16px; }
+.shell-h { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.shell-ic { display: inline-flex; }
+.shell-h b { font-size: 15px; }
+.shell-sub { color: var(--muted); font-size: 12.5px; }
+.shell-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.shell-tile { height: 42px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); }
+.shell-line { height: 60px; border-radius: 8px; background: linear-gradient(180deg, var(--surface), var(--page)); border: 1px solid var(--border); }
+
+/* V1 top segmented */
+.nv1-top { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.nv1-seg { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.nv1-seg button {
+  display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent;
+  color: var(--ink-2); padding: 6px 12px; border-radius: 7px; font-weight: 600; font-size: 13.5px;
+}
+.nv1-seg button svg { vertical-align: -2px; }
+.nv1-seg button.on { background: var(--page); color: var(--ink); }
+
+/* V2 sidebar */
+.nv2 { display: flex; min-height: 210px; }
+.nv2-rail {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 8px;
+  background: var(--surface); border-right: 1px solid var(--border); width: 92px; flex: none;
+}
+.nv2-logo {
+  width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-weight: 800; margin: 0 auto 8px;
+}
+.nv2-rail button {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 0; background: transparent; color: var(--muted); padding: 9px 4px; border-radius: 9px;
+}
+.nv2-rail button.on { background: var(--page); }
+.nv2-lbl { font-size: 11px; font-weight: 600; }
+.nv2-main { flex: 1; }
+
+/* V3 underline tabs, accent from --mod */
+.nv3-bar { display: flex; align-items: center; gap: 18px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.nv3-tabs { display: flex; gap: 4px; }
+.nv3-tabs button {
+  border: 0; background: transparent; color: var(--muted); padding: 7px 12px 9px; font-weight: 600;
+  border-bottom: 2px solid transparent; border-radius: 0;
+}
+.nv3-tabs button.on { color: var(--ink); border-bottom-color: var(--mod); }
+
+/* V4 bottom nav */
+.nv4 { display: flex; flex-direction: column; min-height: 210px; }
+.nv4-main { flex: 1; }
+.nv4-bar { display: flex; border-top: 1px solid var(--border); background: var(--surface); }
+.nv4-bar button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  border: 0; background: transparent; color: var(--muted); padding: 9px 0;
+}
+.nv4-bar button small { font-size: 11px; font-weight: 600; }
+.nv4-bar button.on { background: var(--page); }
 
 /* M5: pin stem with an arrowhead aimed at the line */
 .mk-pinarrow { width: 2px; height: 11px; }
