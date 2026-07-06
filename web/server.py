@@ -196,15 +196,28 @@ class BudgetItemIn(BaseModel):
     type: str = Field(pattern="^(INCOME|EXPENSE)$")
     name: str = Field(min_length=1, max_length=60)
     amount: float = Field(ge=0)
-    category: str = Field(default="inne", min_length=1, max_length=30)
+    category_id: int | None = None
+    month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")  # None = recurring
     note: str | None = None
 
 
 class BudgetItemUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     amount: float = Field(ge=0)
-    category: str = Field(default="inne", min_length=1, max_length=30)
+    category_id: int | None = None
+    month: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
     note: str | None = None
+
+
+class BudgetCategoryIn(BaseModel):
+    kind: str = Field(pattern="^(INCOME|EXPENSE)$")
+    name: str = Field(min_length=1, max_length=30)
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class BudgetCategoryUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 class BudgetLoanIn(BaseModel):
@@ -973,13 +986,15 @@ def budget_items(type: str | None = Query(None, pattern="^(INCOME|EXPENSE)$")):
 
 @app.post("/api/budget/items", status_code=201)
 def create_budget_item(body: BudgetItemIn):
-    item_id = db.add_budget_item(body.type, body.name.strip(), body.amount, body.category, body.note)
+    item_id = db.add_budget_item(
+        body.type, body.name.strip(), body.amount, body.category_id, body.month, body.note)
     return {"id": item_id}
 
 
 @app.put("/api/budget/items/{item_id}")
 def update_budget_item(item_id: int, body: BudgetItemUpdate):
-    if not db.update_budget_item(item_id, body.name.strip(), body.amount, body.category, body.note):
+    if not db.update_budget_item(
+        item_id, body.name.strip(), body.amount, body.category_id, body.month, body.note):
         raise HTTPException(status_code=404, detail="Pozycja nie istnieje")
     return {"id": item_id}
 
@@ -989,6 +1004,30 @@ def remove_budget_item(item_id: int):
     if not db.delete_budget_item(item_id):
         raise HTTPException(status_code=404, detail="Pozycja nie istnieje")
     return {"deleted": item_id}
+
+
+@app.get("/api/budget/categories")
+def budget_categories(kind: str | None = Query(None, pattern="^(INCOME|EXPENSE)$")):
+    return db.get_budget_categories(kind)
+
+
+@app.post("/api/budget/categories", status_code=201)
+def create_budget_category(body: BudgetCategoryIn):
+    return {"id": db.add_budget_category(body.kind, body.name.strip(), body.color)}
+
+
+@app.put("/api/budget/categories/{cat_id}")
+def update_budget_category(cat_id: int, body: BudgetCategoryUpdate):
+    if not db.update_budget_category(cat_id, body.name.strip(), body.color):
+        raise HTTPException(status_code=404, detail="Kategoria nie istnieje")
+    return {"id": cat_id}
+
+
+@app.delete("/api/budget/categories/{cat_id}")
+def remove_budget_category(cat_id: int):
+    if not db.delete_budget_category(cat_id):
+        raise HTTPException(status_code=404, detail="Kategoria nie istnieje")
+    return {"deleted": cat_id}
 
 
 @app.get("/api/budget/loans")

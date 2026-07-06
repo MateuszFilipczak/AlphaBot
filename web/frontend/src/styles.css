@@ -109,6 +109,22 @@ button { font: inherit; cursor: pointer; }
 .badge.ok { color: var(--up); border-color: var(--up); }
 .empty.small { padding: 12px; font-size: 13px; }
 .field select { width: 100%; background: var(--page); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); padding: 8px 10px; font: inherit; }
+.checkline { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-2); margin: 4px 0 12px; cursor: pointer; }
+.checkline input { width: 16px; height: 16px; }
+
+/* category manager */
+.cat-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 46vh; overflow-y: auto; }
+.cat-row { display: flex; align-items: center; gap: 8px; }
+.cat-row input[type="color"], .cat-add input[type="color"] {
+  width: 34px; height: 34px; flex: none; padding: 2px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--page); cursor: pointer;
+}
+.cat-row input[type="text"], .cat-row input:not([type]), .cat-add input:not([type="color"]) {
+  flex: 1; background: var(--page); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--ink); padding: 7px 10px; font: inherit;
+}
+.cat-add { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+.btn.small.danger { color: var(--down); }
 
 .module-soon { text-align: center; padding: 70px 20px; }
 .module-soon .soon-badge { font-size: 20px; color: var(--ink); margin: 0 0 10px; }

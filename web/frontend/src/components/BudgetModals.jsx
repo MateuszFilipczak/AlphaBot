@@ -1,18 +1,21 @@
 import { useState } from "react";
 import {
-  addBudgetItem, addBudgetLoan, updateBudgetItem, updateBudgetLoan,
+  addBudgetCategory, addBudgetItem, addBudgetLoan, deleteBudgetCategory,
+  updateBudgetCategory, updateBudgetItem, updateBudgetLoan,
 } from "../api.js";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, monthKey } from "../budget.js";
+import { monthKey } from "../budget.js";
 
-// Add/edit an income or expense entry. `type` fixes income vs expense (INCOME|
-// EXPENSE); `edit` (an existing row) switches to PUT. Amount, name, category
-// and note are all editable.
-export function BudgetItemModal({ type, edit = null, onClose, onSaved }) {
+// Add/edit an income or expense entry. `type` fixes income vs expense; `edit`
+// switches to PUT. `categories` are the user's categories of this kind. A
+// one-off toggle attaches the entry to a specific month (default = the month
+// being viewed); recurring entries have month = null.
+export function BudgetItemModal({ type, edit = null, defaultOneOff = false, categories, viewMonth, onClose, onSaved }) {
   const isIncome = type === "INCOME";
-  const cats = isIncome ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   const [name, setName] = useState(edit?.name ?? "");
   const [amount, setAmount] = useState(edit ? String(edit.amount) : "");
-  const [category, setCategory] = useState(edit?.category ?? cats[0].key);
+  const [categoryId, setCategoryId] = useState(edit?.category_id ?? categories[0]?.id ?? null);
+  const [oneOff, setOneOff] = useState(edit ? edit.month != null : defaultOneOff);
+  const [month, setMonth] = useState(edit?.month ?? viewMonth ?? monthKey());
   const [note, setNote] = useState(edit?.note ?? "");
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -24,7 +27,13 @@ export function BudgetItemModal({ type, edit = null, onClose, onSaved }) {
     if (!(value >= 0) || amount === "") return setError("Podaj kwotę.");
     setSaving(true);
     setError(null);
-    const body = { name: name.trim(), amount: value, category, note: note.trim() || null };
+    const body = {
+      name: name.trim(),
+      amount: value,
+      category_id: categoryId ? Number(categoryId) : null,
+      month: oneOff ? month : null,
+      note: note.trim() || null,
+    };
     try {
       if (edit) await updateBudgetItem(edit.id, body);
       else await addBudgetItem({ type, ...body });
@@ -39,7 +48,7 @@ export function BudgetItemModal({ type, edit = null, onClose, onSaved }) {
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit}>
-        <h3>{edit ? `Edytuj ${noun}` : isIncome ? "Nowy wpływ" : "Nowy wydatek stały"}</h3>
+        <h3>{edit ? `Edytuj ${noun}` : isIncome ? "Nowy wpływ" : "Nowy wydatek"}</h3>
         <div className="field">
           <label>Nazwa</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
@@ -47,16 +56,27 @@ export function BudgetItemModal({ type, edit = null, onClose, onSaved }) {
         </div>
         <div className="field-row">
           <div className="field">
-            <label>Kwota (zł / mies.)</label>
+            <label>Kwota (zł)</label>
             <input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </div>
           <div className="field">
             <label>Kategoria</label>
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {cats.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            <select value={categoryId ?? ""} onChange={(e) => setCategoryId(e.target.value || null)}>
+              {categories.length === 0 && <option value="">Bez kategorii</option>}
+              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
         </div>
+        <label className="checkline">
+          <input type="checkbox" checked={oneOff} onChange={(e) => setOneOff(e.target.checked)} />
+          Jednorazowo w konkretnym miesiącu (nie co miesiąc)
+        </label>
+        {oneOff && (
+          <div className="field">
+            <label>Miesiąc</label>
+            <input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+          </div>
+        )}
         <div className="field">
           <label>Notatka (opcjonalna)</label>
           <input value={note} onChange={(e) => setNote(e.target.value)} />
@@ -158,6 +178,88 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// Manage categories: add / rename / recolor / delete, per kind (income vs
+// expense). Colours drive the expense-structure chart, so distinct hues help.
+export function CategoryManagerModal({ categories, onClose, onChanged }) {
+  const [tab, setTab] = useState("EXPENSE");
+  const [draftName, setDraftName] = useState("");
+  const [draftColor, setDraftColor] = useState("#3b82f6");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const list = categories.filter((c) => c.kind === tab);
+
+  const wrap = (fn) => async () => {
+    setBusy(true);
+    setError(null);
+    try { await fn(); onChanged(); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
+
+  const add = wrap(async () => {
+    if (!draftName.trim()) throw new Error("Podaj nazwę kategorii.");
+    await addBudgetCategory({ kind: tab, name: draftName.trim(), color: draftColor });
+    setDraftName("");
+  });
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-wide">
+        <h3>Kategorie</h3>
+        <div className="type-toggle">
+          <button type="button" className={`buy ${tab === "EXPENSE" ? "active" : ""}`} onClick={() => setTab("EXPENSE")}>Wydatki</button>
+          <button type="button" className={`buy ${tab === "INCOME" ? "active" : ""}`} onClick={() => setTab("INCOME")}>Wpływy</button>
+        </div>
+
+        <div className="cat-list">
+          {list.map((c) => (
+            <CategoryRow key={c.id} cat={c} busy={busy} onChanged={onChanged} setError={setError} />
+          ))}
+          {list.length === 0 && <div className="empty small">Brak kategorii — dodaj pierwszą.</div>}
+        </div>
+
+        <div className="cat-add">
+          <input type="color" value={draftColor} onChange={(e) => setDraftColor(e.target.value)} aria-label="Kolor" />
+          <input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="Nowa kategoria" />
+          <button type="button" className="btn primary" disabled={busy} onClick={add}>Dodaj</button>
+        </div>
+
+        {error && <div className="form-error">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" className="btn" onClick={onClose}>Gotowe</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoryRow({ cat, busy, onChanged, setError }) {
+  const [name, setName] = useState(cat.name);
+  const [color, setColor] = useState(cat.color);
+  const dirty = name.trim() !== cat.name || color !== cat.color;
+
+  const save = async () => {
+    setError(null);
+    try { await updateBudgetCategory(cat.id, { name: name.trim(), color }); onChanged(); }
+    catch (err) { setError(err.message); }
+  };
+  const remove = async () => {
+    setError(null);
+    try { await deleteBudgetCategory(cat.id); onChanged(); }
+    catch (err) { setError(err.message); }
+  };
+
+  return (
+    <div className="cat-row">
+      <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Kolor" />
+      <input value={name} onChange={(e) => setName(e.target.value)} />
+      <button type="button" className="btn small" disabled={busy || !dirty} onClick={save}>Zapisz</button>
+      <button type="button" className="btn small danger" disabled={busy} onClick={remove}>Usuń</button>
     </div>
   );
 }

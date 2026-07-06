@@ -2,14 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import ModuleBar from "../components/ModuleNav.jsx";
 import RowMenu from "../components/RowMenu.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
-import { BudgetItemModal, LoanModal } from "../components/BudgetModals.jsx";
+import { BudgetItemModal, CategoryManagerModal, LoanModal } from "../components/BudgetModals.jsx";
 import {
-  deleteBudgetItem, deleteBudgetLoan, getBudgetItems, getBudgetLoans,
+  deleteBudgetItem, deleteBudgetLoan, getBudgetCategories, getBudgetItems, getBudgetLoans,
 } from "../api.js";
-import {
-  EXPENSE_CATEGORIES, LOANS_COLOR, addMonths, catColor, catLabel,
-  loanState, monthKey, monthLabel,
-} from "../budget.js";
+import { LOANS_COLOR, NO_CAT_COLOR, addMonths, loanState, monthKey, monthLabel } from "../budget.js";
 
 const zl = (v) => (v ?? 0).toLocaleString("pl-PL", { style: "currency", currency: "PLN" });
 const pnl = (v) => (v >= 0 ? "pnl-up" : "pnl-down");
@@ -18,54 +15,74 @@ export default function Budget() {
   const [month, setMonth] = useState(monthKey());
   const [items, setItems] = useState(null);
   const [loans, setLoans] = useState(null);
+  const [cats, setCats] = useState(null);
   const [itemModal, setItemModal] = useState(null); // {type, edit?}
   const [loanModal, setLoanModal] = useState(null); // {edit?} | true
+  const [catModal, setCatModal] = useState(false);
   const [del, setDel] = useState(null); // {kind, row}
   const [delBusy, setDelBusy] = useState(false);
   const [tick, setTick] = useState(0);
 
-  const reload = () => {
+  useEffect(() => {
     getBudgetItems().then(setItems).catch(() => setItems([]));
     getBudgetLoans().then(setLoans).catch(() => setLoans([]));
-  };
-  useEffect(reload, [tick]);
+    getBudgetCategories().then(setCats).catch(() => setCats([]));
+  }, [tick]);
   const refresh = () => setTick((t) => t + 1);
 
+  const catMap = useMemo(() => {
+    const m = new Map();
+    (cats ?? []).forEach((c) => m.set(c.id, c));
+    return m;
+  }, [cats]);
+  const catInfo = (id) => (id != null && catMap.get(id)) || { name: "Bez kategorii", color: NO_CAT_COLOR };
+  const expenseCats = (cats ?? []).filter((c) => c.kind === "EXPENSE");
+  const incomeCats = (cats ?? []).filter((c) => c.kind === "INCOME");
+
   const view = useMemo(() => {
-    if (!items || !loans) return null;
-    const income = items.filter((i) => i.type === "INCOME");
-    const expenses = items.filter((i) => i.type === "EXPENSE");
+    if (!items || !loans || !cats) return null;
+    // recurring (month == null) always count; one-off only in their month
+    const inMonth = (i) => i.month == null || i.month === month;
+    const active = items.filter(inMonth);
+    const incomeRec = active.filter((i) => i.type === "INCOME" && i.month == null);
+    const expenseRec = active.filter((i) => i.type === "EXPENSE" && i.month == null);
+    const oneOff = active.filter((i) => i.month === month);
+
     const loanViews = loans
       .map((l) => ({ ...l, s: loanState(l, month) }))
       .sort((a, b) => a.s.finished - b.s.finished || a.name.localeCompare(b.name));
     const activeLoans = loanViews.filter((l) => l.s.active);
     const installmentsTotal = activeLoans.reduce((a, l) => a + l.installment, 0);
-    const totalIncome = income.reduce((a, i) => a + i.amount, 0);
-    const totalFixed = expenses.reduce((a, e) => a + e.amount, 0);
-    const totalExpenses = totalFixed + installmentsTotal;
+
+    const totalIncome = active.filter((i) => i.type === "INCOME").reduce((a, i) => a + i.amount, 0);
+    const totalExpenses = active.filter((i) => i.type === "EXPENSE").reduce((a, i) => a + i.amount, 0) + installmentsTotal;
     const leftover = totalIncome - totalExpenses;
 
-    // struktura wydatków: per-category totals + loans as one synthetic slice
-    const byCat = {};
-    for (const e of expenses) byCat[e.category] = (byCat[e.category] || 0) + e.amount;
-    const catSegs = EXPENSE_CATEGORIES
-      .filter((c) => byCat[c.key])
-      .map((c) => ({ label: c.label, amount: byCat[c.key], color: c.color }));
+    // struktura wydatków: every expense this month (recurring + one-off) by
+    // category, plus loans as one synthetic slice
+    const byCat = new Map();
+    for (const e of active.filter((i) => i.type === "EXPENSE")) {
+      const c = catInfo(e.category_id);
+      const prev = byCat.get(c.name) ?? { label: c.name, amount: 0, color: c.color };
+      prev.amount += e.amount;
+      byCat.set(c.name, prev);
+    }
+    const catSegs = [...byCat.values()].sort((a, b) => b.amount - a.amount);
     if (installmentsTotal > 0) catSegs.unshift({ label: "Raty kredytów", amount: installmentsTotal, color: LOANS_COLOR });
 
     const totalDebt = loanViews.reduce((a, l) => a + (l.s.finished ? 0 : l.s.remaining), 0);
     return {
-      income, expenses, loanViews, activeLoans, installmentsTotal,
+      incomeRec, expenseRec, oneOff, loanViews, activeLoans, installmentsTotal,
       totalIncome, totalExpenses, leftover, catSegs, totalDebt,
       savingsRate: totalIncome > 0 ? Math.round((leftover / totalIncome) * 100) : 0,
     };
-  }, [items, loans, month]);
+  }, [items, loans, cats, month]);
 
   const confirmDelete = async () => {
     setDelBusy(true);
     try {
-      if (del.kind === "item") await deleteBudgetItem(del.row.id);
-      else await deleteBudgetLoan(del.row.id);
+      if (del.kind === "loan") await deleteBudgetLoan(del.row.id);
+      else await deleteBudgetItem(del.row.id);
       setDel(null);
       refresh();
     } finally {
@@ -73,29 +90,30 @@ export default function Budget() {
     }
   };
 
+  const itemMenu = (row) => (
+    <RowMenu label="Menu" items={[
+      { label: "Edytuj", onClick: () => setItemModal({ type: row.type, edit: row }) },
+      { label: "Usuń", danger: true, onClick: () => setDel({ kind: "item", row }) },
+    ]} />
+  );
+
   return (
     <div className="app">
       <ModuleBar />
 
-      {/* month picker */}
       <div className="bmonth">
         <button className="btn" aria-label="Poprzedni miesiąc" onClick={() => setMonth((m) => addMonths(m, -1))}>‹</button>
-        <div className="bmonth-label">
-          <span className="muted">Budżet za</span>
-          <b>{monthLabel(month)}</b>
-        </div>
+        <div className="bmonth-label"><span className="muted">Budżet za</span><b>{monthLabel(month)}</b></div>
         <button className="btn" aria-label="Następny miesiąc" onClick={() => setMonth((m) => addMonths(m, 1))}>›</button>
         <input className="bmonth-input" type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
-        {month !== monthKey() && (
-          <button className="btn" onClick={() => setMonth(monthKey())}>Dziś</button>
-        )}
+        {month !== monthKey() && <button className="btn" onClick={() => setMonth(monthKey())}>Dziś</button>}
+        <button className="btn" style={{ marginLeft: "auto" }} onClick={() => setCatModal(true)}>Kategorie</button>
       </div>
 
       {!view ? (
         <div className="loading">Ładowanie budżetu…</div>
       ) : (
         <>
-          {/* summary */}
           <section className="bud-summary big">
             <div className="bud-num"><span className="lbl">Przychody</span><span className="val pnl-up">{zl(view.totalIncome)}</span></div>
             <div className="bud-num"><span className="lbl">Wydatki</span><span className="val pnl-down">{zl(view.totalExpenses)}</span></div>
@@ -103,7 +121,6 @@ export default function Budget() {
             <div className="bud-num"><span className="lbl">Stopa oszczędności</span><span className="val">{view.savingsRate}%</span></div>
           </section>
 
-          {/* struktura wydatków */}
           {view.catSegs.length > 0 && (
             <div className="bud-panel">
               <h4>Struktura wydatków</h4>
@@ -121,26 +138,19 @@ export default function Budget() {
             </div>
           )}
 
-          {/* income + expenses columns */}
           <div className="bud-cols">
             <div className="bud-panel">
               <div className="panel-head">
-                <h4>Przychody</h4>
+                <h4>Przychody stałe</h4>
                 <button className="btn small" onClick={() => setItemModal({ type: "INCOME" })}>+ Wpływ</button>
               </div>
-              {view.income.length === 0 ? <div className="empty small">Brak wpływów.</div> :
-                view.income.map((i) => (
+              {view.incomeRec.length === 0 ? <div className="empty small">Brak stałych wpływów.</div> :
+                view.incomeRec.map((i) => (
                   <div className="bud-row" key={i.id}>
                     <span>{i.name}{i.note && <small>{i.note}</small>}</span>
-                    <span className="row-end"><b className="pnl-up">{zl(i.amount)}</b>
-                      <RowMenu label="Menu" items={[
-                        { label: "Edytuj", onClick: () => setItemModal({ type: "INCOME", edit: i }) },
-                        { label: "Usuń", danger: true, onClick: () => setDel({ kind: "item", row: i }) },
-                      ]} />
-                    </span>
+                    <span className="row-end"><b className="pnl-up">{zl(i.amount)}</b>{itemMenu(i)}</span>
                   </div>
                 ))}
-              <div className="bud-row total"><span>Razem</span><b className="pnl-up">{zl(view.totalIncome)}</b></div>
             </div>
 
             <div className="bud-panel">
@@ -148,20 +158,17 @@ export default function Budget() {
                 <h4>Wydatki stałe</h4>
                 <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE" })}>+ Wydatek</button>
               </div>
-              {view.expenses.length === 0 && view.activeLoans.length === 0 ?
-                <div className="empty small">Brak wydatków.</div> : null}
-              {view.expenses.map((e) => (
-                <div className="bud-row" key={e.id}>
-                  <span><i className="cat-dot" style={{ background: catColor(e.category) }} />{e.name}
-                    <small>{catLabel(e.category)}</small></span>
-                  <span className="row-end"><b>{zl(e.amount)}</b>
-                    <RowMenu label="Menu" items={[
-                      { label: "Edytuj", onClick: () => setItemModal({ type: "EXPENSE", edit: e }) },
-                      { label: "Usuń", danger: true, onClick: () => setDel({ kind: "item", row: e }) },
-                    ]} />
-                  </span>
-                </div>
-              ))}
+              {view.expenseRec.length === 0 && view.activeLoans.length === 0 ?
+                <div className="empty small">Brak stałych wydatków.</div> : null}
+              {view.expenseRec.map((e) => {
+                const c = catInfo(e.category_id);
+                return (
+                  <div className="bud-row" key={e.id}>
+                    <span><i className="cat-dot" style={{ background: c.color }} />{e.name}<small>{c.name}</small></span>
+                    <span className="row-end"><b>{zl(e.amount)}</b>{itemMenu(e)}</span>
+                  </div>
+                );
+              })}
               {view.activeLoans.map((l) => (
                 <div className="bud-row muted-row" key={`loan-${l.id}`}>
                   <span><i className="cat-dot" style={{ background: LOANS_COLOR }} />{l.name}<small>rata kredytu</small></span>
@@ -172,7 +179,31 @@ export default function Budget() {
             </div>
           </div>
 
-          {/* loans dashboard */}
+          {/* one-off entries for the viewed month */}
+          <div className="bud-panel">
+            <div className="panel-head">
+              <h4>Dodatkowe w tym miesiącu</h4>
+              <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE", oneOff: true })}>+ Wydatek jednorazowy</button>
+            </div>
+            {view.oneOff.length === 0 ? (
+              <div className="empty small">Brak jednorazowych pozycji w {monthLabel(month)} (np. ubezpieczenie auta, nadpłata kredytu).</div>
+            ) : view.oneOff.map((o) => {
+              const c = o.type === "EXPENSE" ? catInfo(o.category_id) : null;
+              return (
+                <div className="bud-row" key={o.id}>
+                  <span>
+                    {c && <i className="cat-dot" style={{ background: c.color }} />}
+                    {o.name}<small>{o.type === "INCOME" ? "wpływ" : c.name}</small>
+                  </span>
+                  <span className="row-end">
+                    <b className={o.type === "INCOME" ? "pnl-up" : ""}>{o.type === "INCOME" ? "+" : ""}{zl(o.amount)}</b>
+                    {itemMenu(o)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
           <div className="bud-panel">
             <div className="panel-head">
               <h4>Kredyty</h4>
@@ -222,16 +253,18 @@ export default function Budget() {
         <BudgetItemModal
           type={itemModal.type}
           edit={itemModal.edit}
+          defaultOneOff={itemModal.oneOff ?? false}
+          categories={itemModal.type === "INCOME" ? incomeCats : expenseCats}
+          viewMonth={month}
           onClose={() => setItemModal(null)}
           onSaved={() => { setItemModal(null); refresh(); }}
         />
       )}
       {loanModal && (
-        <LoanModal
-          edit={loanModal.edit}
-          onClose={() => setLoanModal(null)}
-          onSaved={() => { setLoanModal(null); refresh(); }}
-        />
+        <LoanModal edit={loanModal.edit} onClose={() => setLoanModal(null)} onSaved={() => { setLoanModal(null); refresh(); }} />
+      )}
+      {catModal && (
+        <CategoryManagerModal categories={cats ?? []} onClose={() => setCatModal(false)} onChanged={refresh} />
       )}
       {del && (
         <ConfirmModal

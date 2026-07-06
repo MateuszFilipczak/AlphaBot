@@ -191,6 +191,40 @@ def init_db():
                 note TEXT
             )
         """)
+        # User-managed categories (name + colour) referenced by budget_items.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS budget_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL CHECK (kind IN ('INCOME', 'EXPENSE')),
+                name TEXT NOT NULL,
+                color TEXT NOT NULL DEFAULT '#94a3b8',
+                position INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        # budget_items gained category_id (managed categories) and month
+        # (NULL = recurring monthly; 'YYYY-MM' = a one-off in that month).
+        bi_cols = {r["name"] for r in conn.execute("PRAGMA table_info(budget_items)")}
+        if "category_id" not in bi_cols:
+            conn.execute("ALTER TABLE budget_items ADD COLUMN category_id INTEGER REFERENCES budget_categories(id)")
+        if "month" not in bi_cols:
+            conn.execute("ALTER TABLE budget_items ADD COLUMN month TEXT")
+        # seed a well-separated default palette ONLY into an empty table, so
+        # user edits/deletions stick (same posture as the starter portfolios)
+        if conn.execute("SELECT COUNT(*) AS n FROM budget_categories").fetchone()["n"] == 0:
+            defaults = [
+                ("EXPENSE", "Mieszkanie", "#3b82f6"), ("EXPENSE", "Media", "#06b6d4"),
+                ("EXPENSE", "Transport", "#f59e0b"), ("EXPENSE", "Jedzenie", "#22c55e"),
+                ("EXPENSE", "Zdrowie", "#ef4444"), ("EXPENSE", "Rozrywka", "#a855f7"),
+                ("EXPENSE", "Subskrypcje", "#ec4899"), ("EXPENSE", "Ubezpieczenia", "#eab308"),
+                ("EXPENSE", "Inne", "#94a3b8"),
+                ("INCOME", "Wypłata", "#22c55e"), ("INCOME", "Dodatkowe", "#06b6d4"),
+                ("INCOME", "Inne", "#94a3b8"),
+            ]
+            for pos, (kind, name, color) in enumerate(defaults):
+                conn.execute(
+                    "INSERT INTO budget_categories (kind, name, color, position) VALUES (?, ?, ?, ?)",
+                    (kind, name, color, pos),
+                )
 
         # transactions.currency (the instrument's trading currency) arrived
         # with the FX-awareness feature — add it to DBs that predate it.
@@ -666,24 +700,27 @@ def get_budget_items(type_: str | None = None) -> list[dict]:
         return [dict(r) for r in conn.execute(query, params).fetchall()]
 
 
-def add_budget_item(type_: str, name: str, amount: float, category: str,
-                    note: str | None) -> int:
+def add_budget_item(type_: str, name: str, amount: float, category_id: int | None,
+                    month: str | None, note: str | None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO budget_items (type, name, amount, category, note) VALUES (?, ?, ?, ?, ?)",
-            (type_, name, amount, category, note),
+            """INSERT INTO budget_items (type, name, amount, category_id, month, note)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (type_, name, amount, category_id, month, note),
         )
         return cur.lastrowid
 
 
-def update_budget_item(item_id: int, name: str, amount: float, category: str,
-                       note: str | None) -> bool:
-    """Amount/name/category/note are editable; type is immutable (delete and
-    re-add to flip income↔expense). Returns False if the id doesn't exist."""
+def update_budget_item(item_id: int, name: str, amount: float, category_id: int | None,
+                       month: str | None, note: str | None) -> bool:
+    """Name/amount/category/month/note are editable; type is immutable (delete
+    and re-add to flip income↔expense). month NULL = recurring, 'YYYY-MM' =
+    one-off. Returns False if the id doesn't exist."""
     with get_conn() as conn:
         cur = conn.execute(
-            "UPDATE budget_items SET name = ?, amount = ?, category = ?, note = ? WHERE id = ?",
-            (name, amount, category, note, item_id),
+            """UPDATE budget_items SET name = ?, amount = ?, category_id = ?, month = ?, note = ?
+               WHERE id = ?""",
+            (name, amount, category_id, month, note, item_id),
         )
         return cur.rowcount > 0
 
@@ -691,6 +728,50 @@ def update_budget_item(item_id: int, name: str, amount: float, category: str,
 def delete_budget_item(item_id: int) -> bool:
     with get_conn() as conn:
         return conn.execute("DELETE FROM budget_items WHERE id = ?", (item_id,)).rowcount > 0
+
+
+# ---- Budżet categories ----
+
+def get_budget_categories(kind: str | None = None) -> list[dict]:
+    query = "SELECT * FROM budget_categories"
+    params: list = []
+    if kind is not None:
+        query += " WHERE kind = ?"
+        params.append(kind)
+    query += " ORDER BY position, id"
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(query, params).fetchall()]
+
+
+def add_budget_category(kind: str, name: str, color: str) -> int:
+    with get_conn() as conn:
+        pos = conn.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 AS p FROM budget_categories WHERE kind = ?",
+            (kind,),
+        ).fetchone()["p"]
+        cur = conn.execute(
+            "INSERT INTO budget_categories (kind, name, color, position) VALUES (?, ?, ?, ?)",
+            (kind, name, color, pos),
+        )
+        return cur.lastrowid
+
+
+def update_budget_category(cat_id: int, name: str, color: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE budget_categories SET name = ?, color = ? WHERE id = ?",
+            (name, color, cat_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_budget_category(cat_id: int) -> bool:
+    """Deletes a category; items pointing at it fall back to no category
+    (shown as 'Bez kategorii') rather than blocking the delete. Items are
+    detached FIRST so the FK constraint doesn't reject the delete."""
+    with get_conn() as conn:
+        conn.execute("UPDATE budget_items SET category_id = NULL WHERE category_id = ?", (cat_id,))
+        return conn.execute("DELETE FROM budget_categories WHERE id = ?", (cat_id,)).rowcount > 0
 
 
 def get_budget_loans() -> list[dict]:

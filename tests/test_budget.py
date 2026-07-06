@@ -12,19 +12,24 @@ def client():
 
 # ---- Items (income / expenses) ----------------------------------------------
 
+def _cat(client, kind="EXPENSE"):
+    return next(c["id"] for c in client.get("/api/budget/categories").json() if c["kind"] == kind)
+
+
 def test_item_crud(client):
+    cid = _cat(client)
     r = client.post("/api/budget/items", json={
-        "type": "EXPENSE", "name": "Prąd", "amount": 250, "category": "media",
+        "type": "EXPENSE", "name": "Prąd", "amount": 250, "category_id": cid,
     })
     assert r.status_code == 201
     iid = r.json()["id"]
 
     got = client.get("/api/budget/items?type=EXPENSE").json()
     row = next(x for x in got if x["id"] == iid)
-    assert (row["name"], row["amount"], row["category"]) == ("Prąd", 250, "media")
+    assert (row["name"], row["amount"], row["category_id"], row["month"]) == ("Prąd", 250, cid, None)
 
     r = client.put(f"/api/budget/items/{iid}", json={
-        "name": "Prąd i gaz", "amount": 370, "category": "media", "note": "łącznie",
+        "name": "Prąd i gaz", "amount": 370, "category_id": cid, "note": "łącznie",
     })
     assert r.status_code == 200
     row = next(x for x in client.get("/api/budget/items").json() if x["id"] == iid)
@@ -34,9 +39,19 @@ def test_item_crud(client):
     assert all(x["id"] != iid for x in client.get("/api/budget/items").json())
 
 
+def test_one_off_item_has_month(client):
+    r = client.post("/api/budget/items", json={
+        "type": "EXPENSE", "name": "Ubezpieczenie auta", "amount": 1200,
+        "category_id": _cat(client), "month": "2026-09",
+    })
+    iid = r.json()["id"]
+    row = next(x for x in client.get("/api/budget/items").json() if x["id"] == iid)
+    assert row["month"] == "2026-09"
+
+
 def test_item_type_filter(client):
-    client.post("/api/budget/items", json={"type": "INCOME", "name": "Wypłata", "amount": 8000, "category": "wyplata"})
-    client.post("/api/budget/items", json={"type": "EXPENSE", "name": "Internet", "amount": 90, "category": "media"})
+    client.post("/api/budget/items", json={"type": "INCOME", "name": "Wypłata", "amount": 8000})
+    client.post("/api/budget/items", json={"type": "EXPENSE", "name": "Internet", "amount": 90})
     incomes = client.get("/api/budget/items?type=INCOME").json()
     assert all(x["type"] == "INCOME" for x in incomes)
     assert any(x["name"] == "Wypłata" for x in incomes)
@@ -46,11 +61,47 @@ def test_item_validation(client):
     assert client.post("/api/budget/items", json={"type": "SAVINGS", "name": "x", "amount": 1}).status_code == 422
     assert client.post("/api/budget/items", json={"type": "EXPENSE", "name": "", "amount": 1}).status_code == 422
     assert client.post("/api/budget/items", json={"type": "EXPENSE", "name": "x", "amount": -5}).status_code == 422
+    assert client.post("/api/budget/items", json={"type": "EXPENSE", "name": "x", "amount": 1, "month": "2026/09"}).status_code == 422
 
 
 def test_update_missing_item_404(client):
-    assert client.put("/api/budget/items/999999", json={"name": "x", "amount": 1, "category": "inne"}).status_code == 404
+    assert client.put("/api/budget/items/999999", json={"name": "x", "amount": 1}).status_code == 404
     assert client.delete("/api/budget/items/999999").status_code == 404
+
+
+# ---- Categories -------------------------------------------------------------
+
+def test_default_categories_seeded(client):
+    cats = client.get("/api/budget/categories").json()
+    assert any(c["kind"] == "EXPENSE" for c in cats)
+    assert any(c["kind"] == "INCOME" for c in cats)
+    # all colours are valid hex
+    assert all(len(c["color"]) == 7 and c["color"][0] == "#" for c in cats)
+
+
+def test_category_crud_and_delete_nulls_items(client):
+    r = client.post("/api/budget/categories", json={"kind": "EXPENSE", "name": "Zwierzęta", "color": "#ff8800"})
+    assert r.status_code == 201
+    cid = r.json()["id"]
+
+    r = client.put(f"/api/budget/categories/{cid}", json={"name": "Pupile", "color": "#aa22cc"})
+    assert r.status_code == 200
+    row = next(c for c in client.get("/api/budget/categories").json() if c["id"] == cid)
+    assert (row["name"], row["color"]) == ("Pupile", "#aa22cc")
+
+    # an item using the category loses it (not blocked) when the category goes
+    iid = client.post("/api/budget/items", json={
+        "type": "EXPENSE", "name": "Karma", "amount": 120, "category_id": cid,
+    }).json()["id"]
+    assert client.delete(f"/api/budget/categories/{cid}").status_code == 200
+    row = next(x for x in client.get("/api/budget/items").json() if x["id"] == iid)
+    assert row["category_id"] is None
+
+
+def test_category_validation(client):
+    assert client.post("/api/budget/categories", json={"kind": "EXPENSE", "name": "X", "color": "red"}).status_code == 422
+    assert client.post("/api/budget/categories", json={"kind": "SAVE", "name": "X", "color": "#fff000"}).status_code == 422
+    assert client.post("/api/budget/categories", json={"kind": "EXPENSE", "name": "", "color": "#fff000"}).status_code == 422
 
 
 # ---- Loans ------------------------------------------------------------------

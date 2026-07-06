@@ -1,31 +1,8 @@
-// Budżet module shared config + pure month-view math.
+// Budżet module shared config + pure month-view math. Categories are now
+// user-managed (fetched from the API); this file only keeps the pure helpers.
 
-// Expense categories: colours drive the "struktura wydatków" chart. Loan
-// installments are their own synthetic category ("raty"), computed per month.
-export const EXPENSE_CATEGORIES = [
-  { key: "mieszkanie", label: "Mieszkanie", color: "#3987e5" },
-  { key: "media", label: "Media", color: "#16a3a3" },
-  { key: "transport", label: "Transport", color: "#c98500" },
-  { key: "jedzenie", label: "Jedzenie", color: "#0ca30c" },
-  { key: "zdrowie", label: "Zdrowie", color: "#e0553b" },
-  { key: "rozrywka", label: "Rozrywka", color: "#9b59b6" },
-  { key: "subskrypcje", label: "Subskrypcje", color: "#d081c9" },
-  { key: "inne", label: "Inne", color: "#7a8b3a" },
-];
-
-export const INCOME_CATEGORIES = [
-  { key: "wyplata", label: "Wypłata" },
-  { key: "dodatkowe", label: "Dodatkowe wpływy" },
-  { key: "inne", label: "Inne" },
-];
-
-export const LOANS_COLOR = "#5b6cff"; // synthetic "raty" category in the chart
-
-export const catLabel = (key) =>
-  EXPENSE_CATEGORIES.find((c) => c.key === key)?.label ??
-  INCOME_CATEGORIES.find((c) => c.key === key)?.label ?? key;
-export const catColor = (key) =>
-  EXPENSE_CATEGORIES.find((c) => c.key === key)?.color ?? "#7a8b3a";
+export const LOANS_COLOR = "#5b6cff"; // synthetic "raty" slice in the chart
+export const NO_CAT_COLOR = "#5b5b58"; // items whose category was deleted
 
 // ---- month helpers ("YYYY-MM") ----
 export const monthKey = (d = new Date()) =>
