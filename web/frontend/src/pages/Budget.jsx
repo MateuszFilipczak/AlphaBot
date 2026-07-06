@@ -274,7 +274,7 @@ export default function Budget() {
               <div className="bud-panel">
                 <div className="panel-head">
                   <h4>Wydatki dodatkowe</h4>
-                  <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE", oneOff: true })}>+ Wydatek jednorazowy</button>
+                  <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE", oneOff: true })}>+ Wydatek</button>
                 </div>
                 {view.oneOff.length === 0 ? (
                   <div className="empty small">Brak jednorazowych pozycji w tym miesiącu (np. ubezpieczenie auta, nadpłata kredytu).</div>
