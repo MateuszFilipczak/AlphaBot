@@ -9,6 +9,11 @@ stock universe with yfinance, has Claude pick and reason about top candidates, t
 portfolio in SQLite, and pushes everything to the user's phone via ntfy.sh. It never places trades —
 it's signals + monitoring only; execution and `add`/`deposit` entries are always manual.
 
+The web app has since grown into a **multi-module personal-finance platform** (dark, Polish UI): the
+original investment tracker is now the **Giełda** module, alongside a household-budget module
+(**Budżet**) and a **Krypto** placeholder. The CLI and AI agents remain investment-only. See "Modules
+& navigation" and "Budżet module" below.
+
 ## Commands
 
 ```bash
@@ -62,6 +67,46 @@ client-side routes. Quotes go through a 60s TTL cache, FX rates (Yahoo `EURPLN=X
 a 15-min one. The frontend (React + Vite + lightweight-charts, dark theme, Polish copy) keeps the
 active portfolio in the URL (`?p=`); after any write the views refetch via a shared refresh tick — no
 page reloads.
+
+**Modules & navigation:** the SPA is a multi-module platform. `web/frontend/src/components/ModuleNav.jsx`
+(`ModuleBar` — brand + top segmented switcher + module-identity strip) renders atop every module; its
+`MODULES` array is the single source of truth (key, label, route, icon, accent, `match(pathname)`).
+Routes in `main.jsx`: **Giełda** = the investment app (`/`, `/position/:ticker`, under the `App`
+layout), **Budżet** = `/budzet` (`pages/Budget.jsx`), **Krypto** = `/krypto` (placeholder
+`pages/ModulePlaceholder.jsx`). Adding a module = one `MODULES` entry + one route. `/lab`
+(`pages/ChartLab.jsx`) is a deliberately-unlinked design playground — used repeatedly to prototype UI
+variants on real data before shipping; it has no stable content and is safe to overwrite.
+
+**Budżet module (household budget):** pure-CRUD backend like the investment module — all month-view
+math lives on the frontend in `web/frontend/src/budget.js` (pure, unit-testable: month arithmetic +
+`loanState`). Tables (all additive in `init_db()`): `budget_items` (recurring INCOME/EXPENSE plus
+one-off — `month` NULL = recurring, `'YYYY-MM'` = a one-off in that month; `category_id`,
+`shared_amount` = partner's share), `budget_loans` (installment/count/start_month + `shared_installment`;
+paid/remaining/as-of-month is *derived*, not stored — a loan only counts in months it's active),
+`budget_categories` (user-managed name+colour, seeded once so deletions stick), `budget_income_amounts`
+(per-month amount for a recurring income source: **income is a template whose amount is entered fresh
+each month and zeroes on a new month**, while expenses keep a fixed amount). API under `/api/budget/*`.
+Cost-splitting: an expense/loan's `shared_*` is what a partner (żona) owes; the "Rozliczenie z żoną"
+panel sums it for the viewed month. Loans surface as greyed rows in "Wydatki stałe" for active months.
+Amounts are editable inline (click-to-edit) or via modals. **Verify Budżet against a throwaway
+`ALPHABOT_DB` temp file, NEVER the user's real `alphabot.db`** — a blanket `DELETE` during verification
+once wiped real budget rows.
+
+**XTB import (investment module):** `importers/xtb.py` parses an XTB xlsx export (Cash Operations
+sheet) — pure, no DB/network — into operation dicts (buys/sells with partial-fill volumes, deposits,
+withdrawals, currency transfers, dividends + withholding tax, interest, rights issues, subaccount
+transfers; direction always from the amount's sign). `web/server.py` `POST /api/portfolios/{id}/import/xtb`
+returns a preview (duplicate detection via broker id stored as `transactions.external_id`/
+`deposits.external_id`; ticker mapping `.UK→.L`, `.PL→.WA`, `.US→∅`…, verified through the Yahoo search
+proxy; manual-entry near-duplicate detection); `.../commit` persists the kept rows after FIFO-validating
+the whole batch. Imported (and manually-FX-rated) trades store `transactions.cash_amount` — the exact
+broker-settled portfolio-currency amount — which `engine.cash_balance`/`replay_fifo` use verbatim
+instead of shares×price×current-FX, so cash and realized P&L are FX-exact (match XTB to the grosz).
+Cash flows carry a `deposits.category`: CONTRIBUTION (capital in/out) vs INCOME (dividends/interest —
+profit, not contributed capital) vs RETURN (rights issues — neither profit nor user-facing "suma
+wpłat"). Lifetime P&L = cash + positions_value − non-INCOME capital; % against gross contributed.
+`derive_instrument_type` in `data/yahoo.py` corrects Yahoo's EQUITY/ETF mislabelling of ETCs from the
+instrument name.
 
 **NaN discipline:** every float leaving yfinance passes `data.yahoo.safe_float` (NaN/inf → None) —
 raw NaN is not JSON-serializable and once poisoned a summary sum into a 500. Unpriced positions count
