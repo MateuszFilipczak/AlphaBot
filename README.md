@@ -72,8 +72,10 @@ Lokalny panel do trackowania portfeli — bez logowania, tylko na Twoim komputer
 python main.py web        # startuje serwer i otwiera http://localhost:8000
 ```
 
-U góry jest pasek nawigacji modułów — **Giełda · Budżet · Krypto**. Poniżej najpierw moduł Giełda
-(portfele inwestycyjne), potem moduł Budżet.
+Po wejściu na stronę główną (`/`) widać **stronę startową** — napis AlphaBot i trzy kafelki modułów
+(**Budżet · Giełda · Krypto**), z których wchodzisz do wybranego modułu. W każdym module u góry jest
+pasek nawigacji modułów (marka wraca na stronę startową). Poniżej najpierw moduł Giełda (portfele
+inwestycyjne, pod `/gielda`), potem moduł Budżet.
 
 ### Moduł Giełda (portfele inwestycyjne)
 

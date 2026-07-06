@@ -69,11 +69,13 @@ active portfolio in the URL (`?p=`); after any write the views refetch via a sha
 page reloads.
 
 **Modules & navigation:** the SPA is a multi-module platform. `web/frontend/src/components/ModuleNav.jsx`
-(`ModuleBar` — brand + top segmented switcher + module-identity strip) renders atop every module; its
-`MODULES` array is the single source of truth (key, label, route, icon, accent, `match(pathname)`).
-Routes in `main.jsx`: **Giełda** = the investment app (`/`, `/position/:ticker`, under the `App`
-layout), **Budżet** = `/budzet` (`pages/Budget.jsx`), **Krypto** = `/krypto` (placeholder
-`pages/ModulePlaceholder.jsx`). Adding a module = one `MODULES` entry + one route. `/lab`
+(`ModuleBar` — brand + top segmented switcher + module-identity strip; also exports `MODULES` and
+`ModuleIcon`). `MODULES` is the single source of truth (key, label, route, icon, accent,
+`match(pathname)`). Routes in `main.jsx`: **`/`** = a landing page (`pages/Landing.jsx`) — the AlphaBot
+wordmark over three module tiles; **Giełda** = the investment app at `/gielda` + `/position/:ticker`
+(under the `App` layout — its internal navigation uses `/gielda?p=…`), **Budżet** = `/budzet`
+(`pages/Budget.jsx`), **Krypto** = `/krypto` (placeholder `pages/ModulePlaceholder.jsx`). The brand in
+`ModuleBar` links back to `/` (the landing). Adding a module = one `MODULES` entry + one route. `/lab`
 (`pages/ChartLab.jsx`) is a deliberately-unlinked design playground — used repeatedly to prototype UI
 variants on real data before shipping; it has no stable content and is safe to overwrite.
 
