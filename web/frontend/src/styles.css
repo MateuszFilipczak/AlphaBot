@@ -750,6 +750,58 @@ h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
 .ld-grid span { display: flex; flex-direction: column; font-weight: 700; font-size: 14px; }
 .ld-grid small { font-weight: 400; font-size: 11px; margin-bottom: 1px; }
 
+/* ---- Category manager proposals (lab round 12) ---- */
+.cm-stage { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 14px; max-width: 560px; }
+.cm-toggle { display: flex; gap: 8px; margin-bottom: 12px; }
+.cm-toggle button { flex: 1; padding: 7px; border-radius: 9px; font-weight: 700; border: 1px solid var(--border); background: var(--surface-2); color: var(--ink-2); }
+.cm-toggle button.on { background: rgba(57,135,229,0.15); border-color: var(--accent); color: var(--accent); }
+.cm-swatch { width: 16px; height: 16px; border-radius: 5px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15); }
+.cm-swatch.lg { width: 26px; height: 26px; border-radius: 7px; }
+.cm-name { flex: 1; font-weight: 600; min-width: 0; }
+
+.cm-list { display: flex; flex-direction: column; gap: 6px; }
+.cm-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; }
+.cm-row.cm-over { border-color: var(--accent); box-shadow: 0 -2px 0 var(--accent) inset; }
+.cm-handle { cursor: grab; color: var(--muted); font-size: 14px; letter-spacing: -2px; }
+.cm-actions { display: flex; gap: 2px; }
+.cm-actions button, .cm-arrows button { border: 0; background: transparent; color: var(--muted); padding: 4px 7px; border-radius: 6px; font-size: 13px; }
+.cm-actions button:hover, .cm-arrows button:not(:disabled):hover { background: var(--surface-2); color: var(--ink); }
+.cm-actions button.danger:hover { color: var(--down); }
+.cm-arrows { display: flex; flex-direction: column; line-height: 0.8; }
+.cm-arrows button { padding: 1px 6px; font-size: 11px; }
+.cm-arrows button:disabled { opacity: 0.3; }
+.cm-add-row { margin-top: 4px; border: 1px dashed var(--border); background: transparent; color: var(--accent); padding: 8px; border-radius: 9px; font-weight: 600; }
+/* production category manager (C1): swatch as a color input, inline rename */
+.cm-list { max-height: 46vh; overflow-y: auto; }
+.cm-swatch-wrap { position: relative; display: inline-flex; cursor: pointer; flex: none; }
+.cm-swatch-wrap input[type="color"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.cm-name { border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; text-align: left; flex: 1; padding: 3px 6px; border-radius: 6px; min-width: 0; }
+.cm-name:hover { background: var(--surface-2); }
+.cm-name-input { flex: 1; background: var(--page); border: 1px solid var(--accent); border-radius: 6px; color: var(--ink); padding: 3px 8px; font: inherit; font-weight: 600; min-width: 0; }
+.cm-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.cm-add input[type="color"] { width: 34px; height: 34px; flex: none; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); cursor: pointer; }
+.cm-add input:not([type="color"]) { flex: 1; background: var(--page); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); padding: 7px 10px; font: inherit; }
+
+.cm-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.cm-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 600; cursor: grab; }
+.cm-chip i { width: 9px; height: 9px; border-radius: 50%; }
+.cm-chip-x { border: 0; background: transparent; color: var(--muted); font-size: 11px; padding: 0 0 0 2px; }
+.cm-chip-x:hover { color: var(--down); }
+.cm-chip-add { color: var(--accent); border-style: dashed; cursor: pointer; }
+
+.cm-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .cm-split { grid-template-columns: 1fr; } }
+.cm-split-list { display: flex; flex-direction: column; gap: 4px; }
+.cm-split-row { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.cm-split-row:hover { background: var(--surface); }
+.cm-split-row.on { background: var(--surface); border-color: var(--accent); }
+.cm-editor { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.cm-editor-head { display: flex; align-items: center; gap: 10px; font-weight: 700; margin-bottom: 12px; }
+.cm-lbl { display: block; color: var(--muted); font-size: 12px; margin: 8px 0 4px; }
+.cm-input { width: 100%; background: var(--page); border: 1px solid var(--border); border-radius: 8px; color: var(--ink); padding: 7px 10px; font: inherit; }
+.cm-color { width: 46px; height: 34px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--page); }
+.cm-editor-actions { margin-top: 14px; }
+
 /* ---- Loans view proposals (lab round 11) ---- */
 .kl-stage { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 14px; }
 .kl-topline { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 14px; }

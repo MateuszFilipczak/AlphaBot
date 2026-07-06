@@ -70,3 +70,4 @@ export const getBudgetCategories = () => request("/api/budget/categories");
 export const addBudgetCategory = (body) => post("/api/budget/categories", body);
 export const updateBudgetCategory = (id, body) => put(`/api/budget/categories/${id}`, body);
 export const deleteBudgetCategory = (id) => request(`/api/budget/categories/${id}`, { method: "DELETE" });
+export const reorderBudgetCategories = (ids) => put("/api/budget/categories/reorder", { ids });

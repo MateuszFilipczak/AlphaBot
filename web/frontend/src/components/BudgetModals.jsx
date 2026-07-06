@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   addBudgetCategory, addBudgetItem, addBudgetLoan, deleteBudgetCategory,
-  updateBudgetCategory, updateBudgetItem, updateBudgetLoan,
+  reorderBudgetCategories, updateBudgetCategory, updateBudgetItem, updateBudgetLoan,
 } from "../api.js";
 import { monthKey } from "../budget.js";
 
@@ -243,30 +243,50 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
   );
 }
 
-// Manage categories: add / rename / recolor / delete, per kind (income vs
-// expense). Colours drive the expense-structure chart, so distinct hues help.
+// Manage categories (C1 design): clean draggable rows — colour swatch (click →
+// picker, saves immediately), click-to-rename name, delete. Drag the handle to
+// reorder; the new order is persisted (drives the category dropdown + the
+// expense-structure chart). Per kind (income vs expense).
 export function CategoryManagerModal({ categories, onClose, onChanged }) {
   const [tab, setTab] = useState("EXPENSE");
   const [draftName, setDraftName] = useState("");
   const [draftColor, setDraftColor] = useState("#3b82f6");
-  const [busy, setBusy] = useState(false);
+  const [rows, setRows] = useState([]);           // local order for the active tab
+  const [over, setOver] = useState(null);
   const [error, setError] = useState(null);
+  const drag = useRef(null);
 
-  const list = categories.filter((c) => c.kind === tab);
+  // re-sync local rows from props whenever the tab or the data changes
+  useEffect(() => {
+    setRows(categories.filter((c) => c.kind === tab));
+  }, [categories, tab]);
 
-  const wrap = (fn) => async () => {
-    setBusy(true);
+  const guard = async (fn) => {
     setError(null);
-    try { await fn(); onChanged(); }
-    catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    try { await fn(); } catch (err) { setError(err.message); }
   };
 
-  const add = wrap(async () => {
+  const add = () => guard(async () => {
     if (!draftName.trim()) throw new Error("Podaj nazwę kategorii.");
     await addBudgetCategory({ kind: tab, name: draftName.trim(), color: draftColor });
     setDraftName("");
+    onChanged();
   });
+
+  const onDrop = (to) => {
+    const from = drag.current;
+    drag.current = null;
+    setOver(null);
+    if (from == null || from === to) return;
+    const next = [...rows];
+    const [m] = next.splice(from, 1);
+    next.splice(to, 0, m);
+    setRows(next);                                  // optimistic
+    guard(async () => {
+      await reorderBudgetCategories(next.map((c) => c.id));
+      onChanged();
+    });
+  };
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -277,17 +297,25 @@ export function CategoryManagerModal({ categories, onClose, onChanged }) {
           <button type="button" className={`buy ${tab === "INCOME" ? "active" : ""}`} onClick={() => setTab("INCOME")}>Wpływy</button>
         </div>
 
-        <div className="cat-list">
-          {list.map((c) => (
-            <CategoryRow key={c.id} cat={c} busy={busy} onChanged={onChanged} setError={setError} />
+        <div className="cm-list">
+          {rows.map((c, i) => (
+            <CategoryRow
+              key={c.id} cat={c} index={i} over={over === i}
+              onChanged={onChanged} setError={setError}
+              onDragStart={() => (drag.current = i)}
+              onDragOver={(e) => { e.preventDefault(); setOver(i); }}
+              onDragLeave={() => setOver((o) => (o === i ? null : o))}
+              onDrop={() => onDrop(i)}
+            />
           ))}
-          {list.length === 0 && <div className="empty small">Brak kategorii — dodaj pierwszą.</div>}
+          {rows.length === 0 && <div className="empty small">Brak kategorii — dodaj pierwszą.</div>}
         </div>
 
-        <div className="cat-add">
+        <div className="cm-add">
           <input type="color" value={draftColor} onChange={(e) => setDraftColor(e.target.value)} aria-label="Kolor" />
-          <input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="Nowa kategoria" />
-          <button type="button" className="btn primary" disabled={busy} onClick={add}>Dodaj</button>
+          <input value={draftName} onChange={(e) => setDraftName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Nowa kategoria" />
+          <button type="button" className="btn primary" onClick={add}>Dodaj</button>
         </div>
 
         {error && <div className="form-error">{error}</div>}
@@ -299,14 +327,20 @@ export function CategoryManagerModal({ categories, onClose, onChanged }) {
   );
 }
 
-function CategoryRow({ cat, busy, onChanged, setError }) {
+function CategoryRow({ cat, over, onChanged, setError, onDragStart, onDragOver, onDragLeave, onDrop }) {
   const [name, setName] = useState(cat.name);
-  const [color, setColor] = useState(cat.color);
-  const dirty = name.trim() !== cat.name || color !== cat.color;
+  const [editing, setEditing] = useState(false);
 
-  const save = async () => {
+  const saveName = async () => {
+    setEditing(false);
+    if (name.trim() === cat.name || !name.trim()) { setName(cat.name); return; }
     setError(null);
-    try { await updateBudgetCategory(cat.id, { name: name.trim(), color }); onChanged(); }
+    try { await updateBudgetCategory(cat.id, { name: name.trim(), color: cat.color }); onChanged(); }
+    catch (err) { setError(err.message); setName(cat.name); }
+  };
+  const saveColor = async (color) => {
+    setError(null);
+    try { await updateBudgetCategory(cat.id, { name: cat.name, color }); onChanged(); }
     catch (err) { setError(err.message); }
   };
   const remove = async () => {
@@ -316,11 +350,27 @@ function CategoryRow({ cat, busy, onChanged, setError }) {
   };
 
   return (
-    <div className="cat-row">
-      <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Kolor" />
-      <input value={name} onChange={(e) => setName(e.target.value)} />
-      <button type="button" className="btn small" disabled={busy || !dirty} onClick={save}>Zapisz</button>
-      <button type="button" className="btn small danger" disabled={busy} onClick={remove}>Usuń</button>
+    <div
+      className={`cm-row ${over ? "cm-over" : ""}`}
+      draggable onDragStart={onDragStart} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+    >
+      <span className="cm-handle" title="Przeciągnij, aby zmienić kolejność">⠿</span>
+      <label className="cm-swatch-wrap" title="Zmień kolor">
+        <span className="cm-swatch" style={{ background: cat.color }} />
+        <input type="color" value={cat.color} onChange={(e) => saveColor(e.target.value)} />
+      </label>
+      {editing ? (
+        <input
+          className="cm-name-input" autoFocus value={name}
+          onChange={(e) => setName(e.target.value)} onBlur={saveName}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") { setName(cat.name); setEditing(false); } }}
+        />
+      ) : (
+        <button className="cm-name" onClick={() => setEditing(true)} title="Kliknij, aby zmienić nazwę">{cat.name}</button>
+      )}
+      <div className="cm-actions">
+        <button type="button" className="danger" title="Usuń" onClick={remove}>✕</button>
+      </div>
     </div>
   );
 }

@@ -873,6 +873,14 @@ def delete_budget_category(cat_id: int) -> bool:
         return conn.execute("DELETE FROM budget_categories WHERE id = ?", (cat_id,)).rowcount > 0
 
 
+def reorder_budget_categories(ids: list[int]):
+    """Set position = list index for each category (drives display order).
+    Called with one kind's ids in the desired order; other kinds untouched."""
+    with get_conn() as conn:
+        for pos, cid in enumerate(ids):
+            conn.execute("UPDATE budget_categories SET position = ? WHERE id = ?", (pos, cid))
+
+
 def get_budget_loans() -> list[dict]:
     with get_conn() as conn:
         return [dict(r) for r in conn.execute("SELECT * FROM budget_loans ORDER BY id").fetchall()]

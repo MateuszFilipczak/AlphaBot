@@ -1055,6 +1055,16 @@ def budget_categories(kind: str | None = Query(None, pattern="^(INCOME|EXPENSE)$
     return db.get_budget_categories(kind)
 
 
+class CategoryOrderIn(BaseModel):
+    ids: list[int]
+
+
+@app.put("/api/budget/categories/reorder")
+def reorder_budget_categories(body: CategoryOrderIn):
+    db.reorder_budget_categories(body.ids)
+    return {"ok": True}
+
+
 @app.post("/api/budget/categories", status_code=201)
 def create_budget_category(body: BudgetCategoryIn):
     return {"id": db.add_budget_category(body.kind, body.name.strip(), body.color)}

@@ -200,3 +200,12 @@ def test_income_amount_validation(client):
     assert client.get("/api/budget/income-amounts?month=2026/07").status_code == 422
     assert client.put("/api/budget/income-amounts", json={"item_id": 1, "month": "bad", "amount": 10}).status_code == 422
     assert client.put("/api/budget/income-amounts", json={"item_id": 1, "month": "2026-07", "amount": -5}).status_code == 422
+
+
+def test_category_reorder(client):
+    ids = [c["id"] for c in client.get("/api/budget/categories").json() if c["kind"] == "EXPENSE"]
+    assert len(ids) >= 3
+    new_order = list(reversed(ids))
+    assert client.put("/api/budget/categories/reorder", json={"ids": new_order}).status_code == 200
+    got = [c["id"] for c in client.get("/api/budget/categories").json() if c["kind"] == "EXPENSE"]
+    assert got == new_order  # positions now reflect the requested order

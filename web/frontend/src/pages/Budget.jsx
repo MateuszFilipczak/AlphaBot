@@ -120,15 +120,16 @@ export default function Budget() {
     const myExpenses = totalExpenses - wifeOwes;
 
     // struktura wydatków: every expense this month (recurring + one-off) by
-    // category, plus loans as one synthetic slice
+    // category (in the user's category order), plus loans as one synthetic slice
+    const order = new Map(cats.filter((c) => c.kind === "EXPENSE").map((c, i) => [c.id, i]));
     const byCat = new Map();
     for (const e of active.filter((i) => i.type === "EXPENSE")) {
       const c = catInfo(e.category_id);
-      const prev = byCat.get(c.name) ?? { label: c.name, amount: 0, color: c.color };
+      const prev = byCat.get(c.name) ?? { label: c.name, amount: 0, color: c.color, ord: order.get(e.category_id) ?? 999 };
       prev.amount += e.amount;
       byCat.set(c.name, prev);
     }
-    const catSegs = [...byCat.values()].sort((a, b) => b.amount - a.amount);
+    const catSegs = [...byCat.values()].sort((a, b) => a.ord - b.ord);
     if (installmentsTotal > 0) catSegs.unshift({ label: "Raty kredytów", amount: installmentsTotal, color: LOANS_COLOR });
 
     const totalDebt = loanViews.reduce((a, l) => a + (l.s.finished ? 0 : l.s.remaining), 0);
