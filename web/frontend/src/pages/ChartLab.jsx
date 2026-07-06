@@ -38,7 +38,7 @@ function ExpensePanel() {
 function ExtraPanel() {
   return (
     <div className="bud-panel">
-      <div className="panel-head"><h4>Dodatkowe w tym miesiącu</h4><button className="btn small">+ Wydatek jednorazowy</button></div>
+      <div className="panel-head"><h4>Wydatki dodatkowe</h4><button className="btn small">+ Wydatek jednorazowy</button></div>
       <div className="bud-row"><span><i className="cat-dot" style={{ background: "#f59e0b" }} />Ubezpieczenie auta<small>Transport</small></span><b>1 200 zł</b></div>
       <div className="bud-row total"><span>Razem</span><b className="pnl-down">−1 200 zł</b></div>
     </div>
@@ -47,7 +47,7 @@ function ExtraPanel() {
 function SettlePanel() {
   return (
     <div className="bud-panel">
-      <h4>Rozliczenie z żoną — lipiec 2026</h4>
+      <h4>Rozliczenie z żoną — Lipiec 2026</h4>
       <div className="bud-row"><span>Kredyt hipoteczny<small>z 3 275 zł</small></span><b className="accent">1 500 zł</b></div>
       <div className="bud-row"><span>Czynsz<small>z 929 zł</small></span><b className="accent">460 zł</b></div>
       <div className="bud-row total"><span>Żona ma oddać</span><b className="accent">1 960 zł</b></div>

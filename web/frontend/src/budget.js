@@ -17,8 +17,8 @@ export const addMonths = (m, n) => {
   const idx = y * 12 + (mo - 1) + n;
   return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, "0")}`;
 };
-const PL_MONTHS = ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca",
-  "lipca", "sierpnia", "września", "października", "listopada", "grudnia"];
+const PL_MONTHS = ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec",
+  "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"];
 export const monthLabel = (m) => {
   const { y, mo } = parseMonth(m);
   return `${PL_MONTHS[mo - 1]} ${y}`;

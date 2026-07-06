@@ -209,7 +209,7 @@ export default function Budget() {
                             />
                           ) : (
                             <button
-                              className={`inc-text ${amt > 0 ? "pnl-up" : "empty-amt"}`}
+                              className={`inc-text ${amt > 0 ? "" : "empty-amt"}`}
                               onClick={() => setEditingInc(i.id)}
                               title="Kliknij, aby wpisać kwotę w tym miesiącu"
                             >
@@ -230,7 +230,7 @@ export default function Budget() {
                   {view.shared.map((s) => (
                     <div className="bud-row" key={s.id}>
                       <span>{s.name}<small>z {zl(s.total)}</small></span>
-                      <b className="accent">{zl(s.share)}</b>
+                      <b>{zl(s.share)}</b>
                     </div>
                   ))}
                   <div className="bud-row total"><span>Żona ma oddać</span><b className="accent">{zl(view.wifeOwes)}</b></div>
@@ -241,11 +241,11 @@ export default function Budget() {
               {/* one-off entries for the viewed month */}
               <div className="bud-panel">
                 <div className="panel-head">
-                  <h4>Dodatkowe w tym miesiącu</h4>
+                  <h4>Wydatki dodatkowe</h4>
                   <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE", oneOff: true })}>+ Wydatek jednorazowy</button>
                 </div>
                 {view.oneOff.length === 0 ? (
-                  <div className="empty small">Brak jednorazowych pozycji w {monthLabel(month)} (np. ubezpieczenie auta, nadpłata kredytu).</div>
+                  <div className="empty small">Brak jednorazowych pozycji w tym miesiącu (np. ubezpieczenie auta, nadpłata kredytu).</div>
                 ) : (
                   <>
                     {view.oneOff.map((o) => {
