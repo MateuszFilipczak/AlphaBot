@@ -77,6 +77,18 @@ button { font: inherit; cursor: pointer; }
 
 .bud-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 720px) { .bud-cols { grid-template-columns: 1fr; } }
+
+/* A1 layout: two equal-height columns. Short panels stack in the left column;
+   its last panel grows so its bottom aligns with the tall right column. When
+   the left column outgrows the right, the right panel fills instead. */
+.bud-arrange { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; margin-bottom: 14px; }
+.bud-arrange .arr-col { display: flex; flex-direction: column; gap: 14px; }
+.bud-arrange .arr-col > .bud-panel { margin-bottom: 0; }
+.bud-arrange .arr-col > .bud-panel:last-child { flex: 1 1 auto; }
+@media (max-width: 720px) {
+  .bud-arrange { grid-template-columns: 1fr; }
+  .bud-arrange .arr-col > .bud-panel:last-child { flex: initial; }
+}
 .bud-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--grid); }
 .bud-row:last-child { border-bottom: 0; }
 .bud-row small { color: var(--muted); font-size: 11.5px; margin-left: 6px; }
@@ -91,12 +103,18 @@ button { font: inherit; cursor: pointer; }
   border-radius: 6px; padding: 1px 6px; white-space: nowrap;
 }
 .split-note { font-size: 12px; margin-top: 8px; }
-.inc-amount {
-  width: 96px; text-align: right; background: var(--page); border: 1px solid var(--border);
-  border-radius: 7px; color: var(--ink); padding: 5px 8px; font: inherit; font-weight: 700;
+/* income amount: plain text that becomes an input only while editing */
+.inc-text {
+  border: 0; background: transparent; font: inherit; font-weight: 700;
+  padding: 3px 6px; border-radius: 6px; color: var(--ink);
 }
-.inc-amount:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
-.inc-cur { color: var(--muted); font-size: 12.5px; margin: 0 2px 0 -2px; }
+.inc-text.empty-amt { color: var(--muted); font-weight: 500; font-size: 13px; }
+.inc-text:hover { background: var(--surface-2); }
+.inc-amount {
+  width: 110px; text-align: right; background: var(--page); border: 1px solid var(--accent);
+  border-radius: 7px; color: var(--ink); padding: 4px 8px; font: inherit; font-weight: 700;
+}
+.inc-amount:focus { outline: 1px solid var(--accent); }
 
 .stack-bar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; background: var(--surface-2); margin-bottom: 10px; }
 .stack-bar span + span { box-shadow: inset 1px 0 0 rgba(0,0,0,0.4); }
@@ -725,6 +743,37 @@ h2 .count-hint { color: var(--muted); font-weight: 400; font-size: 13px; }
 @media (max-width: 640px) { .ld-grid { grid-template-columns: repeat(2, 1fr); } }
 .ld-grid span { display: flex; flex-direction: column; font-weight: 700; font-size: 14px; }
 .ld-grid small { font-weight: 400; font-size: 11px; margin-bottom: 1px; }
+
+/* ---- Budget layout proposals (lab round 10) ---- */
+.lb-stage { border: 1px solid var(--border); border-radius: 12px; background: var(--page); padding: 14px; }
+.arr-fixed { color: var(--muted); font-size: 12px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 8px; margin: 4px 0 12px; }
+.arr-fixed span { opacity: 0.7; }
+.arr-fixed:last-child { margin: 12px 0 4px; }
+.arr-bento, .arr-mainside { display: grid; gap: 12px; align-items: start; }
+.arr-bento { grid-template-columns: 1fr 1fr; }
+.arr-mainside { grid-template-columns: 1.6fr 1fr; }
+.arr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.arr-col { display: flex; flex-direction: column; gap: 12px; }
+.arr-col .bud-panel { margin-bottom: 0; }
+@media (max-width: 700px) { .arr-bento, .arr-mainside, .arr-grid { grid-template-columns: 1fr; } }
+.lb-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.lb-panel:last-child { margin-bottom: 0; }
+.lb-panel h4 { margin: 0 0 8px; font-size: 12px; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.4px; }
+.lb-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--grid); font-size: 13.5px; }
+.lb-row:last-child { border-bottom: 0; }
+.lb-row.total { font-weight: 700; border-top: 1px solid var(--border); border-bottom: 0; margin-top: 3px; padding-top: 7px; }
+.lb-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+.lb-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; }
+.lb-tile span { color: var(--muted); font-size: 12px; }
+.lb-tile b { font-size: 18px; }
+.lb-bar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--surface-2); }
+.lb-bar span + span { box-shadow: inset 1px 0 0 rgba(0,0,0,0.4); }
+.lb-bento { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.lb-side { display: grid; grid-template-columns: 300px 1fr; gap: 12px; align-items: start; }
+.lb-wide { margin-top: 12px; }
+.lb-split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.lb-sub { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+@media (max-width: 700px) { .lb-bento, .lb-side, .lb-split { grid-template-columns: 1fr; } }
 
 /* ---- Module navigation proposals (lab round 8) ---- */
 .lab-card-wide { grid-column: 1 / -1; }

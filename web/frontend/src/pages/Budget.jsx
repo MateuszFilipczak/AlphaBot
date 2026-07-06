@@ -19,6 +19,7 @@ export default function Budget() {
   const [cats, setCats] = useState(null);
   const [incomeAmounts, setIncomeAmounts] = useState(null); // {item_id: amount} for month
   const [incomeDraft, setIncomeDraft] = useState({}); // per-row inline input text
+  const [editingInc, setEditingInc] = useState(null); // income row id being edited
   const [itemModal, setItemModal] = useState(null); // {type, edit?}
   const [loanModal, setLoanModal] = useState(null); // {edit?} | true
   const [catModal, setCatModal] = useState(false);
@@ -179,107 +180,126 @@ export default function Budget() {
             </div>
           )}
 
-          <div className="bud-cols">
-            <div className="bud-panel">
-              <div className="panel-head">
-                <h4>Przychody stałe</h4>
-                <button className="btn small" onClick={() => setItemModal({ type: "INCOME" })}>+ Źródło</button>
-              </div>
-              {view.incomeRec.length === 0 ? <div className="empty small">Brak źródeł wpływu. Dodaj np. Wypłatę — kwotę wpiszesz co miesiąc.</div> :
-                view.incomeRec.map((i) => (
-                  <div className="bud-row" key={i.id}>
-                    <span>{i.name}{i.note && <small>{i.note}</small>}</span>
-                    <span className="row-end">
-                      <input
-                        className="inc-amount"
-                        type="number" step="any" min="0" inputMode="decimal"
-                        placeholder="0"
-                        value={incomeDraft[i.id] ?? ""}
-                        onChange={(e) => setIncomeDraft((d) => ({ ...d, [i.id]: e.target.value }))}
-                        onBlur={() => saveIncome(i.id)}
-                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-                      />
-                      <span className="inc-cur">zł</span>
-                      {itemMenu(i)}
-                    </span>
-                  </div>
-                ))}
-              <div className="bud-row total"><span>Razem</span><b className="pnl-up">{zl(view.totalIncome)}</b></div>
-            </div>
-
-            <div className="bud-panel">
-              <div className="panel-head">
-                <h4>Wydatki stałe</h4>
-                <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE" })}>+ Wydatek</button>
-              </div>
-              {view.expenseRec.length === 0 && view.activeLoans.length === 0 ?
-                <div className="empty small">Brak stałych wydatków.</div> : null}
-              {view.expenseRec.map((e) => {
-                const c = catInfo(e.category_id);
-                return (
-                  <div className="bud-row" key={e.id}>
-                    <span><i className="cat-dot" style={{ background: c.color }} />{e.name}<small>{c.name}</small>
-                      {e.shared_amount > 0 && <span className="split-tag">½ {zl(e.shared_amount)} od żony</span>}</span>
-                    <span className="row-end"><b>{zl(e.amount)}</b>{itemMenu(e)}</span>
-                  </div>
-                );
-              })}
-              {view.activeLoans.map((l) => (
-                <div className="bud-row muted-row" key={`loan-${l.id}`}>
-                  <span><i className="cat-dot" style={{ background: LOANS_COLOR }} />{l.name}<small>rata kredytu</small>
-                    {l.shared_installment > 0 && <span className="split-tag">½ {zl(l.shared_installment)} od żony</span>}</span>
-                  <b>{zl(l.installment)}</b>
+          <div className="bud-arrange">
+            {/* left column: the short panels stack; the last one fills down so
+                its bottom lines up with the tall Wydatki panel on the right */}
+            <div className="arr-col">
+              <div className="bud-panel">
+                <div className="panel-head">
+                  <h4>Przychody stałe</h4>
+                  <button className="btn small" onClick={() => setItemModal({ type: "INCOME" })}>+ Źródło</button>
                 </div>
-              ))}
-              <div className="bud-row total"><span>Razem</span><b className="pnl-down">{zl(view.totalExpenses)}</b></div>
-            </div>
-          </div>
+                {view.incomeRec.length === 0 ? <div className="empty small">Brak źródeł wpływu. Dodaj np. Wypłatę — kwotę wpiszesz co miesiąc.</div> :
+                  view.incomeRec.map((i) => {
+                    const amt = incomeAmounts[i.id] ?? 0;
+                    const editing = editingInc === i.id;
+                    return (
+                      <div className="bud-row" key={i.id}>
+                        <span>{i.name}{i.note && <small>{i.note}</small>}</span>
+                        <span className="row-end">
+                          {editing ? (
+                            <input
+                              className="inc-amount"
+                              type="number" step="any" min="0" inputMode="decimal" autoFocus
+                              placeholder="0"
+                              value={incomeDraft[i.id] ?? ""}
+                              onChange={(e) => setIncomeDraft((d) => ({ ...d, [i.id]: e.target.value }))}
+                              onBlur={async () => { await saveIncome(i.id); setEditingInc(null); }}
+                              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditingInc(null); }}
+                            />
+                          ) : (
+                            <button
+                              className={`inc-text ${amt > 0 ? "pnl-up" : "empty-amt"}`}
+                              onClick={() => setEditingInc(i.id)}
+                              title="Kliknij, aby wpisać kwotę w tym miesiącu"
+                            >
+                              {amt > 0 ? zl(amt) : "wpisz kwotę"}
+                            </button>
+                          )}
+                          {itemMenu(i)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                <div className="bud-row total"><span>Razem</span><b className="pnl-up">{zl(view.totalIncome)}</b></div>
+              </div>
 
-          {/* one-off entries for the viewed month */}
-          <div className="bud-panel">
-            <div className="panel-head">
-              <h4>Dodatkowe w tym miesiącu</h4>
-              <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE", oneOff: true })}>+ Wydatek jednorazowy</button>
+              {view.shared.length > 0 && (
+                <div className="bud-panel">
+                  <h4>Rozliczenie z żoną — {monthLabel(month)}</h4>
+                  {view.shared.map((s) => (
+                    <div className="bud-row" key={s.id}>
+                      <span>{s.name}<small>z {zl(s.total)}</small></span>
+                      <b className="accent">{zl(s.share)}</b>
+                    </div>
+                  ))}
+                  <div className="bud-row total"><span>Żona ma oddać</span><b className="accent">{zl(view.wifeOwes)}</b></div>
+                  <div className="split-note muted">Twój udział w wydatkach: {zl(view.myExpenses)} (z {zl(view.totalExpenses)})</div>
+                </div>
+              )}
+
+              {/* one-off entries for the viewed month */}
+              <div className="bud-panel">
+                <div className="panel-head">
+                  <h4>Dodatkowe w tym miesiącu</h4>
+                  <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE", oneOff: true })}>+ Wydatek jednorazowy</button>
+                </div>
+                {view.oneOff.length === 0 ? (
+                  <div className="empty small">Brak jednorazowych pozycji w {monthLabel(month)} (np. ubezpieczenie auta, nadpłata kredytu).</div>
+                ) : (
+                  <>
+                    {view.oneOff.map((o) => {
+                      const c = o.type === "EXPENSE" ? catInfo(o.category_id) : null;
+                      return (
+                        <div className="bud-row" key={o.id}>
+                          <span>
+                            {c && <i className="cat-dot" style={{ background: c.color }} />}
+                            {o.name}<small>{o.type === "INCOME" ? "wpływ" : c.name}</small>
+                            {o.type === "EXPENSE" && o.shared_amount > 0 && <span className="split-tag">½ {zl(o.shared_amount)} od żony</span>}
+                          </span>
+                          <span className="row-end">
+                            <b className={o.type === "INCOME" ? "pnl-up" : ""}>{o.type === "INCOME" ? "+" : ""}{zl(o.amount)}</b>
+                            {itemMenu(o)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <div className="bud-row total"><span>Razem</span>
+                      <b className={pnl(view.oneOffTotal)}>{view.oneOffTotal >= 0 ? "+" : ""}{zl(view.oneOffTotal)}</b></div>
+                  </>
+                )}
+              </div>
             </div>
-            {view.oneOff.length === 0 ? (
-              <div className="empty small">Brak jednorazowych pozycji w {monthLabel(month)} (np. ubezpieczenie auta, nadpłata kredytu).</div>
-            ) : (
-              <>
-                {view.oneOff.map((o) => {
-                  const c = o.type === "EXPENSE" ? catInfo(o.category_id) : null;
+
+            <div className="arr-col">
+              <div className="bud-panel">
+                <div className="panel-head">
+                  <h4>Wydatki stałe</h4>
+                  <button className="btn small" onClick={() => setItemModal({ type: "EXPENSE" })}>+ Wydatek</button>
+                </div>
+                {view.expenseRec.length === 0 && view.activeLoans.length === 0 ?
+                  <div className="empty small">Brak stałych wydatków.</div> : null}
+                {view.expenseRec.map((e) => {
+                  const c = catInfo(e.category_id);
                   return (
-                    <div className="bud-row" key={o.id}>
-                      <span>
-                        {c && <i className="cat-dot" style={{ background: c.color }} />}
-                        {o.name}<small>{o.type === "INCOME" ? "wpływ" : c.name}</small>
-                        {o.type === "EXPENSE" && o.shared_amount > 0 && <span className="split-tag">½ {zl(o.shared_amount)} od żony</span>}
-                      </span>
-                      <span className="row-end">
-                        <b className={o.type === "INCOME" ? "pnl-up" : ""}>{o.type === "INCOME" ? "+" : ""}{zl(o.amount)}</b>
-                        {itemMenu(o)}
-                      </span>
+                    <div className="bud-row" key={e.id}>
+                      <span><i className="cat-dot" style={{ background: c.color }} />{e.name}<small>{c.name}</small>
+                        {e.shared_amount > 0 && <span className="split-tag">½ {zl(e.shared_amount)} od żony</span>}</span>
+                      <span className="row-end"><b>{zl(e.amount)}</b>{itemMenu(e)}</span>
                     </div>
                   );
                 })}
-                <div className="bud-row total"><span>Razem</span>
-                  <b className={pnl(view.oneOffTotal)}>{view.oneOffTotal >= 0 ? "+" : ""}{zl(view.oneOffTotal)}</b></div>
-              </>
-            )}
-          </div>
-
-          {view.shared.length > 0 && (
-            <div className="bud-panel">
-              <h4>Rozliczenie z żoną — {monthLabel(month)}</h4>
-              {view.shared.map((s) => (
-                <div className="bud-row" key={s.id}>
-                  <span>{s.name}<small>z {zl(s.total)}</small></span>
-                  <b className="accent">{zl(s.share)}</b>
-                </div>
-              ))}
-              <div className="bud-row total"><span>Żona ma oddać</span><b className="accent">{zl(view.wifeOwes)}</b></div>
-              <div className="split-note muted">Twój udział w wydatkach: {zl(view.myExpenses)} (z {zl(view.totalExpenses)})</div>
+                {view.activeLoans.map((l) => (
+                  <div className="bud-row muted-row" key={`loan-${l.id}`}>
+                    <span><i className="cat-dot" style={{ background: LOANS_COLOR }} />{l.name}<small>rata kredytu</small>
+                      {l.shared_installment > 0 && <span className="split-tag">½ {zl(l.shared_installment)} od żony</span>}</span>
+                    <b>{zl(l.installment)}</b>
+                  </div>
+                ))}
+                <div className="bud-row total"><span>Razem</span><b className="pnl-down">{zl(view.totalExpenses)}</b></div>
+              </div>
             </div>
-          )}
+          </div>
 
           <div className="bud-panel">
             <div className="panel-head">
