@@ -81,16 +81,19 @@ variants on real data before shipping; it has no stable content and is safe to o
 math lives on the frontend in `web/frontend/src/budget.js` (pure, unit-testable: month arithmetic +
 `loanState`). Tables (all additive in `init_db()`): `budget_items` (recurring INCOME/EXPENSE plus
 one-off — `month` NULL = recurring, `'YYYY-MM'` = a one-off in that month; `category_id`,
-`shared_amount` = partner's share), `budget_loans` (installment/count/start_month + `shared_installment`;
-paid/remaining/as-of-month is *derived*, not stored — a loan only counts in months it's active),
-`budget_categories` (user-managed name+colour, seeded once so deletions stick), `budget_income_amounts`
+`shared_amount` = partner's share), `budget_loans` (**snapshot model**: `principal` for the % bar +
+`remaining` outstanding balance + current `installment` + `end_month` + `shared_installment` — the user
+enters the current state, so in-progress loans, rate changes and overpayments are just field edits, no
+amortization engine; a loan counts as a monthly expense in any month ≤ end_month), `budget_categories`
+(user-managed name+colour, seeded once so deletions stick; `position` drives display order — the C1
+manager reorders by drag-and-drop via `PUT /api/budget/categories/reorder`), `budget_income_amounts`
 (per-month amount for a recurring income source: **income is a template whose amount is entered fresh
 each month and zeroes on a new month**, while expenses keep a fixed amount). API under `/api/budget/*`.
-Cost-splitting: an expense/loan's `shared_*` is what a partner (żona) owes; the "Rozliczenie z żoną"
-panel sums it for the viewed month. Loans surface as greyed rows in "Wydatki stałe" for active months.
-Amounts are editable inline (click-to-edit) or via modals. **Verify Budżet against a throwaway
-`ALPHABOT_DB` temp file, NEVER the user's real `alphabot.db`** — a blanket `DELETE` during verification
-once wiped real budget rows.
+Cost-splitting: an expense/loan's `shared_*` is what a partner owes; the "Rozliczenie z partnerem" panel
+sums it for the viewed month (UI copy says "partner", not "żona"). Loans surface as greyed rows in
+"Wydatki stałe" for active months. Amounts are editable inline (click-to-edit) or via modals. **Verify
+Budżet against a throwaway `ALPHABOT_DB` temp file, NEVER the user's real `alphabot.db`** — a blanket
+`DELETE` during verification once wiped real budget rows.
 
 **XTB import (investment module):** `importers/xtb.py` parses an XTB xlsx export (Cash Operations
 sheet) — pure, no DB/network — into operation dicts (buys/sells with partial-fill volumes, deposits,

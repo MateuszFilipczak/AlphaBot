@@ -4,6 +4,8 @@
 
 AlphaBot to osobisty asystent inwestycyjny dla rynku amerykańskiego (NYSE/NASDAQ), który codziennie rano skanuje wybrane sektory (tech, healthcare, fintech), wybiera 3 najciekawsze spółki i wysyła Ci gotowy briefing na telefon. Do analizy używa modelu Claude — screening liczbowy robi sam bot (yfinance), a Claude ocenia kandydatów, pisze uzasadnienia i śledzi ruchy znanych inwestorów (Buffett, Ackman, Burry) przez wyszukiwanie w internecie. Wszystko trzyma się w lokalnej bazie SQLite i pilnuje Twojego portfela — stop-lossy i maksymalny drawdown są monitorowane automatycznie w godzinach sesji.
 
+Aplikacja webowa urosła w **wielomodułową platformę finansów osobistych** (ciemny motyw, polski interfejs): pierwotny tracker inwestycyjny to teraz moduł **Giełda**, obok modułu budżetu domowego (**Budżet**) i placeholdera **Krypto**. CLI i agenci AI pozostają wyłącznie inwestycyjne.
+
 ## Wymagania
 
 - **Python 3.11+**
@@ -70,6 +72,11 @@ Lokalny panel do trackowania portfeli — bez logowania, tylko na Twoim komputer
 python main.py web        # startuje serwer i otwiera http://localhost:8000
 ```
 
+U góry jest pasek nawigacji modułów — **Giełda · Budżet · Krypto**. Poniżej najpierw moduł Giełda
+(portfele inwestycyjne), potem moduł Budżet.
+
+### Moduł Giełda (portfele inwestycyjne)
+
 **Co potrafi:**
 
 - **Waluty → portfele**: stałe zakładki USD/EUR/PLN u góry (GBP pojawia się, gdy istnieje portfel
@@ -116,6 +123,26 @@ Sprzedaże rozliczane są metodą **FIFO** (najstarsze loty schodzą pierwsze), 
 i niezrealizowany liczony jest netto po prowizjach. Gotówka portfela = wpłaty − (zakupy + prowizje)
 + (sprzedaże − prowizje). Stare pozycje i wpłaty (sprzed wersji webowej) migrują się automatycznie
 do portfela USD przy pierwszym uruchomieniu.
+
+### Moduł Budżet (budżet domowy)
+
+Prosty tracker miesięcznego budżetu — wszystko lokalnie w SQLite, bez logowania:
+
+- **Przełącznik miesiąca** u góry (strzałki + ikona kalendarza). Widok liczy się dla wybranego miesiąca
+- **Przychody** to szablon źródeł (nazwa + kategoria); **kwotę wpisujesz co miesiąc** klikając w nią
+  w liście (wypłata bywa różna) — przy przejściu na kolejny miesiąc kwoty startują puste
+- **Wydatki stałe** mają stałą kwotę powtarzaną w każdym miesiącu; kwotę zmienisz klikając w nią (inline)
+- **Wydatki dodatkowe** — pozycje jednorazowe przypięte do konkretnego miesiąca (np. ubezpieczenie auta,
+  nadpłata kredytu); liczą się tylko w swoim miesiącu
+- **Kredyty (model snapshot)** — podajesz stan bieżący: kwota pierwotna (do paska %), pozostało do spłaty
+  (wg banku), aktualna rata i miesiąc ostatniej raty. Nadpłata albo zmiana oprocentowania to zwykła edycja
+  pól — bez modelowania odsetek. Rata aktywnego kredytu doklejana jest automatycznie do wydatków stałych
+- **Dzielenie kosztów z partnerem** — przy wydatku lub racie zaznaczasz „koszt dzielony" i podajesz udział
+  partnera; panel **„Rozliczenie z partnerem"** sumuje, ile ma Ci oddać w danym miesiącu
+- **Kategorie** — własne nazwy i kolory, kolejność zmieniana przeciąganiem (drag & drop); kolejność steruje
+  rozwijanym wyborem i paskiem „Struktura wydatków"
+- **Bilans**: kafelki (suma wpłat/wypłat, wolne środki, zysk), pasek struktury wydatków, a niżej panele
+  przychodów, wydatków, dodatkowych, rozliczenia i kredytów
 
 **Frontend** (React + Vite + lightweight-charts) jest zbudowany do `web/frontend/dist` i serwowany
 przez FastAPI — do zwykłego użytku nie potrzebujesz Node. Jeśli chcesz go rozwijać:
