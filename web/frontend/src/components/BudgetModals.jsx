@@ -31,7 +31,7 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
     const value = isIncomeSource ? 0 : parseFloat(amount);
     if (!isIncomeSource && (!(value >= 0) || amount === "")) return setError("Podaj kwotę.");
     const sh = shared ? parseFloat(sharedAmount) || 0 : 0;
-    if (sh > value) return setError("Udział żony nie może przekraczać kwoty.");
+    if (sh > value) return setError("Udział partnera nie może przekraczać kwoty.");
     setSaving(true);
     setError(null);
     const body = {
@@ -98,11 +98,11 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
           <>
             <label className="checkline">
               <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
-              Koszt dzielony z żoną
+              Koszt dzielony z partnerem
             </label>
             {shared && (
               <div className="field">
-                <label>Udział żony (zł) — ile ma oddać</label>
+                <label>Udział partnera (zł) — ile ma oddać</label>
                 <input type="number" step="any" min="0" value={sharedAmount}
                   onChange={(e) => setSharedAmount(e.target.value)} placeholder="np. 1500" />
                 {parseFloat(amount) > 0 && parseFloat(sharedAmount) >= 0 && (
@@ -155,7 +155,7 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
     if (!/^\d{4}-\d{2}$/.test(endMonth)) return setError("Wybierz miesiąc ostatniej raty.");
     if (rem > prin && prin > 0) return setError("Pozostało nie może przekraczać kwoty pierwotnej.");
     const sh = shared ? parseFloat(sharedInst) || 0 : 0;
-    if (sh > inst) return setError("Udział żony nie może przekraczać raty.");
+    if (sh > inst) return setError("Udział partnera nie może przekraczać raty.");
     setSaving(true);
     setError(null);
     const body = {
@@ -215,11 +215,11 @@ export function LoanModal({ edit = null, onClose, onSaved }) {
         )}
         <label className="checkline">
           <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
-          Rata dzielona z żoną
+          Rata dzielona z partnerem
         </label>
         {shared && (
           <div className="field">
-            <label>Udział żony w racie (zł) — ile ma oddać</label>
+            <label>Udział partnera w racie (zł) — ile ma oddać</label>
             <input type="number" step="any" min="0" value={sharedInst}
               onChange={(e) => setSharedInst(e.target.value)} placeholder="np. 1500" />
             {inst > 0 && (

@@ -107,7 +107,7 @@ export default function Budget() {
     const totalExpenses = active.filter((i) => i.type === "EXPENSE").reduce((a, i) => a + i.amount, 0) + installmentsTotal;
     const leftover = totalIncome - totalExpenses;
 
-    // koszty dzielone z żoną: her share across expenses (recurring + one-off)
+    // koszty dzielone z partnerem: partner share across expenses (recurring + one-off)
     // and active loans, this month
     const sharedItems = active
       .filter((i) => i.type === "EXPENSE" && i.shared_amount > 0)
@@ -191,7 +191,7 @@ export default function Budget() {
             <div className="bud-num"><span className="lbl">Wydatki</span><span className="val pnl-down">{zl(view.totalExpenses)}</span></div>
             <div className="bud-num"><span className="lbl">Zostaje</span><span className={`val ${pnl(view.leftover)}`}>{zl(view.leftover)}</span></div>
             {view.wifeOwes > 0 && (
-              <div className="bud-num"><span className="lbl">Żona ma oddać</span><span className="val accent">{zl(view.wifeOwes)}</span></div>
+              <div className="bud-num"><span className="lbl">Partner ma oddać</span><span className="val accent">{zl(view.wifeOwes)}</span></div>
             )}
           </section>
 
@@ -258,14 +258,14 @@ export default function Budget() {
 
               {view.shared.length > 0 && (
                 <div className="bud-panel">
-                  <h4>Rozliczenie z żoną</h4>
+                  <h4>Rozliczenie z partnerem</h4>
                   {view.shared.map((s) => (
                     <div className={`bud-row ${s.loan ? "muted-row" : ""}`} key={s.id}>
                       <span>{s.name}<small>{s.loan ? "rata kredytu · " : ""}z {zl(s.total)}</small></span>
                       <b>{zl(s.share)}</b>
                     </div>
                   ))}
-                  <div className="bud-row total"><span>Razem</span><b className="accent">{zl(view.wifeOwes)}</b></div>
+                  <div className="bud-row total"><span>Partner ma oddać</span><b className="accent">{zl(view.wifeOwes)}</b></div>
                 </div>
               )}
 
@@ -286,7 +286,7 @@ export default function Budget() {
                           <span>
                             {c && <i className="cat-dot" style={{ background: c.color }} />}
                             {o.name}<small>{o.type === "INCOME" ? "wpływ" : c.name}</small>
-                            {o.type === "EXPENSE" && o.shared_amount > 0 && <span className="split-tag">½ {zl(o.shared_amount)} od żony</span>}
+                            {o.type === "EXPENSE" && o.shared_amount > 0 && <span className="split-tag">½ {zl(o.shared_amount)} od partnera</span>}
                           </span>
                           <span className="row-end">
                             <b className={o.type === "INCOME" ? "pnl-up" : ""}>{o.type === "INCOME" ? "+" : ""}{zl(o.amount)}</b>
@@ -315,7 +315,7 @@ export default function Budget() {
                   return (
                     <div className="bud-row" key={e.id}>
                       <span><i className="cat-dot" style={{ background: c.color }} />{e.name}<small>{c.name}</small>
-                        {e.shared_amount > 0 && <span className="split-tag">½ {zl(e.shared_amount)} od żony</span>}</span>
+                        {e.shared_amount > 0 && <span className="split-tag">½ {zl(e.shared_amount)} od partnera</span>}</span>
                       <span className="row-end">
                         {editingExp === e.id ? (
                           <input
@@ -342,7 +342,7 @@ export default function Budget() {
                 {view.activeLoans.map((l) => (
                   <div className="bud-row muted-row" key={`loan-${l.id}`}>
                     <span><i className="cat-dot" style={{ background: LOANS_COLOR }} />{l.name}<small>rata kredytu</small>
-                      {l.shared_installment > 0 && <span className="split-tag">½ {zl(l.shared_installment)} od żony</span>}</span>
+                      {l.shared_installment > 0 && <span className="split-tag">½ {zl(l.shared_installment)} od partnera</span>}</span>
                     <b>{zl(l.installment)}</b>
                   </div>
                 ))}
