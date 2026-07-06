@@ -192,6 +192,30 @@ class InstrumentTypeIn(BaseModel):
     type: str = Field(pattern="^(EQUITY|ETF|ETC)$")
 
 
+class BudgetItemIn(BaseModel):
+    type: str = Field(pattern="^(INCOME|EXPENSE)$")
+    name: str = Field(min_length=1, max_length=60)
+    amount: float = Field(ge=0)
+    category: str = Field(default="inne", min_length=1, max_length=30)
+    note: str | None = None
+
+
+class BudgetItemUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    amount: float = Field(ge=0)
+    category: str = Field(default="inne", min_length=1, max_length=30)
+    note: str | None = None
+
+
+class BudgetLoanIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    principal: float = Field(default=0.0, ge=0)
+    installment: float = Field(gt=0)
+    installments_count: int = Field(gt=0, le=1200)
+    start_month: str = Field(pattern=r"^\d{4}-\d{2}$")  # YYYY-MM
+    note: str | None = None
+
+
 class ImportOperationIn(BaseModel):
     """One row the user accepted on the import preview screen. The ticker may
     differ from the parser's mapping — the preview lets the user correct it."""
@@ -934,6 +958,68 @@ def commit_xtb_import(portfolio_id: int, body: ImportCommitIn):
                            category=_import_category(op.kind))
         imported += 1
     return {"imported": imported, "skipped_duplicates": skipped}
+
+
+# ---- Budżet module ----------------------------------------------------------
+# Recurring income/expenses + loans. The month-view math (which loan is active
+# in a given month, how many installments are paid) is pure and lives on the
+# frontend — the API just does CRUD, like the investment module derives
+# positions from raw transactions.
+
+@app.get("/api/budget/items")
+def budget_items(type: str | None = Query(None, pattern="^(INCOME|EXPENSE)$")):
+    return db.get_budget_items(type)
+
+
+@app.post("/api/budget/items", status_code=201)
+def create_budget_item(body: BudgetItemIn):
+    item_id = db.add_budget_item(body.type, body.name.strip(), body.amount, body.category, body.note)
+    return {"id": item_id}
+
+
+@app.put("/api/budget/items/{item_id}")
+def update_budget_item(item_id: int, body: BudgetItemUpdate):
+    if not db.update_budget_item(item_id, body.name.strip(), body.amount, body.category, body.note):
+        raise HTTPException(status_code=404, detail="Pozycja nie istnieje")
+    return {"id": item_id}
+
+
+@app.delete("/api/budget/items/{item_id}")
+def remove_budget_item(item_id: int):
+    if not db.delete_budget_item(item_id):
+        raise HTTPException(status_code=404, detail="Pozycja nie istnieje")
+    return {"deleted": item_id}
+
+
+@app.get("/api/budget/loans")
+def budget_loans():
+    return db.get_budget_loans()
+
+
+@app.post("/api/budget/loans", status_code=201)
+def create_budget_loan(body: BudgetLoanIn):
+    loan_id = db.add_budget_loan(
+        body.name.strip(), body.principal, body.installment,
+        body.installments_count, body.start_month, body.note,
+    )
+    return {"id": loan_id}
+
+
+@app.put("/api/budget/loans/{loan_id}")
+def update_budget_loan(loan_id: int, body: BudgetLoanIn):
+    if not db.update_budget_loan(
+        loan_id, body.name.strip(), body.principal, body.installment,
+        body.installments_count, body.start_month, body.note,
+    ):
+        raise HTTPException(status_code=404, detail="Kredyt nie istnieje")
+    return {"id": loan_id}
+
+
+@app.delete("/api/budget/loans/{loan_id}")
+def remove_budget_loan(loan_id: int):
+    if not db.delete_budget_loan(loan_id):
+        raise HTTPException(status_code=404, detail="Kredyt nie istnieje")
+    return {"deleted": loan_id}
 
 
 # ---- Position detail --------------------------------------------------------

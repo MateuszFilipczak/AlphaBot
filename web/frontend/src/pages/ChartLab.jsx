@@ -1,174 +1,268 @@
-import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { fmtMoney } from "../format.js";
 
 // ---- Chart lab (/lab) --------------------------------------------------------
-// Round 8: top-level module navigation (Budżet / Giełda / Krypto) — 4 nav-bar
-// mockups, each shown wrapping a stub app shell. Not linked from the UI.
+// Round 9: Budżet module tracker — 4 full-width layout proposals on sample
+// data (income, fixed expenses, loans with installments + payoff dates).
 
-const MODULES = [
-  { key: "budget", label: "Budżet", hint: "Budżet domowy", icon: "wallet", accent: "#0ca30c" },
-  { key: "stocks", label: "Giełda", hint: "Akcje i ETF-y", icon: "chart", accent: "#3987e5" },
-  { key: "crypto", label: "Krypto", hint: "Kryptowaluty", icon: "coin", accent: "#c98500" },
+const zl = (v) => fmtMoney(v, "PLN");
+const NOW = { y: 2026, m: 7 }; // "dziś" dla wyliczeń kredytów
+
+const INCOME = [
+  { name: "Wypłata", amount: 8000, note: "co miesiąc" },
+  { name: "Inne wpływy", amount: 600, note: "freelance" },
 ];
 
-function Icon({ kind, size = 18 }) {
-  const p = { fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
-  switch (kind) {
-    case "wallet":
-      return <svg width={size} height={size} viewBox="0 0 20 20"><g {...p}><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M2.5 8h15" /><circle cx="14" cy="11.5" r="1.1" fill="currentColor" stroke="none" /></g></svg>;
-    case "chart":
-      return <svg width={size} height={size} viewBox="0 0 20 20"><g {...p}><path d="M3 16V4M3 16h14" /><path d="M6 13l3-3 2.5 2.5L16 6" /></g></svg>;
-    case "coin":
-      return <svg width={size} height={size} viewBox="0 0 20 20"><g {...p}><circle cx="10" cy="10" r="7" /><path d="M8 6.5h3a1.8 1.8 0 0 1 0 3.5H8m0 0h3.3a1.8 1.8 0 0 1 0 3.6H8M8 5v10" /></g></svg>;
-    default:
-      return null;
-  }
+// fixed monthly expenses that are NOT loan installments
+const EXPENSES = [
+  { name: "Prąd", amount: 250, cat: "media" },
+  { name: "Gaz", amount: 120, cat: "media" },
+  { name: "Internet + TV", amount: 90, cat: "media" },
+  { name: "Telefon", amount: 60, cat: "media" },
+  { name: "Ubezpieczenia", amount: 180, cat: "inne" },
+  { name: "Subskrypcje", amount: 110, cat: "inne" },
+];
+
+const LOANS = [
+  { name: "Kredyt hipoteczny", principal: 350000, installment: 2100, count: 360, start: { y: 2021, m: 6 }, color: "#3987e5" },
+  { name: "Kredyt samochodowy", principal: 60000, installment: 1200, count: 48, start: { y: 2024, m: 1 }, color: "#c98500" },
+  { name: "RTV/AGD (raty 0%)", principal: 6000, installment: 500, count: 12, start: { y: 2026, m: 1 }, color: "#0ca30c" },
+];
+
+const monthsBetween = (a, b) => (b.y - a.y) * 12 + (b.m - a.m);
+const addMonths = ({ y, m }, n) => {
+  const idx = y * 12 + (m - 1) + n;
+  return { y: Math.floor(idx / 12), m: (idx % 12) + 1 };
+};
+const fmtMY = ({ y, m }) => `${String(m).padStart(2, "0")}.${y}`;
+
+function loanState(loan) {
+  const elapsed = Math.max(0, Math.min(loan.count, monthsBetween(loan.start, NOW)));
+  const left = loan.count - elapsed;
+  const total = loan.count * loan.installment;   // łączna kwota do spłaty
+  const paid = elapsed * loan.installment;
+  const remaining = total - paid;
+  const pct = (elapsed / loan.count) * 100;
+  return { elapsed, left, total, paid, remaining, pct, end: addMonths(loan.start, loan.count) };
 }
 
-// stub content so each nav variant is shown in context, not in a vacuum
-function Shell({ active }) {
-  const m = MODULES.find((x) => x.key === active);
+const sum = (arr, k) => arr.reduce((a, x) => a + (k ? x[k] : x), 0);
+const totalIncome = sum(INCOME, "amount");
+const totalInstallments = sum(LOANS, "installment");
+const totalFixed = sum(EXPENSES, "amount");
+const totalExpenses = totalFixed + totalInstallments;
+const leftover = totalIncome - totalExpenses;
+const savingsRate = Math.round((leftover / totalIncome) * 100);
+
+function Bar({ pct, color = "var(--accent)" }) {
+  return <div className="bud-bar"><span style={{ width: `${pct}%`, background: color }} /></div>;
+}
+
+function Ring({ pct, color }) {
   return (
-    <div className="shell-body">
-      <div className="shell-h">
-        <span className="shell-ic" style={{ color: m.accent }}><Icon kind={m.icon} /></span>
-        <b>{m.label}</b>
-        <span className="shell-sub">{m.hint}</span>
-      </div>
-      <div className="shell-tiles">
-        <div className="shell-tile" /><div className="shell-tile" /><div className="shell-tile" />
-      </div>
-      <div className="shell-line" />
+    <div className="bud-ring" style={{ background: `conic-gradient(${color} ${pct * 3.6}deg, var(--surface-2) 0)` }}>
+      <div className="bud-ring-hole">{Math.round(pct)}%</div>
     </div>
   );
 }
 
-function LabCard({ title, desc, wide, children }) {
+function Card({ title, desc, children }) {
   return (
-    <div className={`lab-card ${wide ? "lab-card-wide" : ""}`}>
+    <div className="lab-card lab-card-wide">
       <h3>{title}</h3>
       <p className="lab-desc">{desc}</p>
-      <div className="nav-stage">{children}</div>
+      <div className="bud-stage">{children}</div>
     </div>
   );
 }
 
-// V1 · Top segmented bar next to the brand
-function VariantTopSeg({ active, setActive }) {
+// V1 · Klasyczny bilans miesięczny
+function V1() {
   return (
-    <div className="nv1">
-      <div className="nv1-top">
-        <span className="brand">Alpha<span>Bot</span></span>
-        <div className="nv1-seg">
-          {MODULES.map((m) => (
-            <button key={m.key} className={active === m.key ? "on" : ""} onClick={() => setActive(m.key)}>
-              <Icon kind={m.icon} size={15} /> {m.label}
-            </button>
+    <>
+      <div className="bud-summary">
+        <div className="bud-num"><span className="lbl">Przychody</span><span className="val up">{zl(totalIncome)}</span></div>
+        <div className="bud-num"><span className="lbl">Wydatki</span><span className="val down">{zl(totalExpenses)}</span></div>
+        <div className="bud-num"><span className="lbl">Zostaje</span><span className="val accent">{zl(leftover)}</span></div>
+      </div>
+      <div className="bud-cols">
+        <div className="bud-panel">
+          <h4>Przychody</h4>
+          {INCOME.map((i) => (
+            <div className="bud-row" key={i.name}><span>{i.name} <small>{i.note}</small></span><b className="up">{zl(i.amount)}</b></div>
+          ))}
+        </div>
+        <div className="bud-panel">
+          <h4>Wydatki stałe</h4>
+          {EXPENSES.map((e) => (
+            <div className="bud-row" key={e.name}><span>{e.name}</span><b>{zl(e.amount)}</b></div>
+          ))}
+          {LOANS.map((l) => (
+            <div className="bud-row" key={l.name}><span>{l.name} <small>rata</small></span><b>{zl(l.installment)}</b></div>
           ))}
         </div>
       </div>
-      <Shell active={active} />
-    </div>
+      <div className="bud-panel">
+        <h4>Kredyty</h4>
+        {LOANS.map((l) => {
+          const s = loanState(l);
+          return (
+            <div className="loan-row" key={l.name}>
+              <div className="loan-head"><b>{l.name}</b><span className="muted">{zl(l.installment)}/mc · do {fmtMY(s.end)} · zostało {s.left} rat</span></div>
+              <Bar pct={s.pct} color={l.color} />
+              <div className="loan-foot muted">spłacono {zl(s.paid)} z {zl(s.total)} · zostało {zl(s.remaining)}</div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
-// V2 · Left icon sidebar (app-shell)
-function VariantSidebar({ active, setActive }) {
+// V2 · Dashboard kafelkowy
+function V2() {
+  const catTotals = { media: 0, inne: 0, raty: totalInstallments };
+  EXPENSES.forEach((e) => { catTotals[e.cat] += e.amount; });
+  const catColors = { raty: "#3987e5", media: "#c98500", inne: "#9b59b6" };
   return (
-    <div className="nv2">
-      <nav className="nv2-rail">
-        <span className="nv2-logo">A</span>
-        {MODULES.map((m) => (
-          <button
-            key={m.key}
-            className={active === m.key ? "on" : ""}
-            style={active === m.key ? { color: m.accent } : undefined}
-            onClick={() => setActive(m.key)}
-            title={m.label}
-          >
-            <Icon kind={m.icon} size={20} />
-            <span className="nv2-lbl">{m.label}</span>
-          </button>
-        ))}
-      </nav>
-      <div className="nv2-main"><Shell active={active} /></div>
-    </div>
-  );
-}
-
-// V3 · Underlined tabs, module accent follows the active one
-function VariantUnderline({ active, setActive }) {
-  const m = MODULES.find((x) => x.key === active);
-  return (
-    <div className="nv3" style={{ "--mod": m.accent }}>
-      <div className="nv3-bar">
-        <span className="brand">Alpha<span>Bot</span></span>
-        <div className="nv3-tabs">
-          {MODULES.map((x) => (
-            <button key={x.key} className={active === x.key ? "on" : ""} onClick={() => setActive(x.key)}>
-              {x.label}
-            </button>
+    <>
+      <div className="bud-tiles">
+        <div className="bud-tile"><span className="lbl">Przychody</span><b className="up">{zl(totalIncome)}</b></div>
+        <div className="bud-tile"><span className="lbl">Wydatki</span><b className="down">{zl(totalExpenses)}</b></div>
+        <div className="bud-tile"><span className="lbl">Zostaje</span><b className="accent">{zl(leftover)}</b></div>
+        <div className="bud-tile"><span className="lbl">Stopa oszczędności</span><b>{savingsRate}%</b></div>
+      </div>
+      <div className="bud-panel">
+        <h4>Struktura wydatków</h4>
+        <div className="stack-bar">
+          {Object.entries(catTotals).map(([k, v]) => (
+            <span key={k} style={{ width: `${(v / totalExpenses) * 100}%`, background: catColors[k] }} title={`${k} ${zl(v)}`} />
+          ))}
+        </div>
+        <div className="stack-legend">
+          {Object.entries(catTotals).map(([k, v]) => (
+            <span key={k}><i style={{ background: catColors[k] }} />{k === "raty" ? "Raty kredytów" : k} {zl(v)}</span>
           ))}
         </div>
       </div>
-      <Shell active={active} />
-    </div>
+      <div className="loan-cards">
+        {LOANS.map((l) => {
+          const s = loanState(l);
+          return (
+            <div className="loan-card" key={l.name}>
+              <Ring pct={s.pct} color={l.color} />
+              <div className="loan-card-info">
+                <b>{l.name}</b>
+                <span className="muted">rata {zl(l.installment)}</span>
+                <span className="muted">zostało {s.left} rat · do {fmtMY(s.end)}</span>
+                <span>{zl(s.remaining)} <small className="muted">do spłaty</small></span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
-// V4 · Bottom nav (mobile-first)
-function VariantBottom({ active, setActive }) {
+// V3 · Przepływ (cashflow) — pasek dochodu zjadany przez wydatki
+function V3() {
+  const segs = [
+    { name: "Raty kredytów", amount: totalInstallments, color: "#3987e5" },
+    { name: "Media", amount: sum(EXPENSES.filter((e) => e.cat === "media"), "amount"), color: "#c98500" },
+    { name: "Inne", amount: sum(EXPENSES.filter((e) => e.cat === "inne"), "amount"), color: "#9b59b6" },
+  ];
   return (
-    <div className="nv4">
-      <div className="nv4-main"><Shell active={active} /></div>
-      <nav className="nv4-bar">
-        {MODULES.map((m) => (
-          <button
-            key={m.key}
-            className={active === m.key ? "on" : ""}
-            style={active === m.key ? { color: m.accent } : undefined}
-            onClick={() => setActive(m.key)}
-          >
-            <Icon kind={m.icon} size={20} />
-            <small>{m.label}</small>
-          </button>
+    <>
+      <div className="flow-head">
+        <span className="muted">Z każdych {zl(totalIncome)} przychodu zostaje</span>
+        <b className="accent">{zl(leftover)}</b>
+      </div>
+      <div className="flow-bar">
+        {segs.map((s) => (
+          <span key={s.name} className="flow-seg" style={{ width: `${(s.amount / totalIncome) * 100}%`, background: s.color }} title={`${s.name} ${zl(s.amount)}`} />
         ))}
-      </nav>
-    </div>
+        <span className="flow-seg rest" style={{ width: `${(leftover / totalIncome) * 100}%` }}>Zostaje</span>
+      </div>
+      <div className="flow-legend">
+        {segs.map((s) => (<span key={s.name}><i style={{ background: s.color }} />{s.name} {zl(s.amount)}</span>))}
+      </div>
+      <div className="bud-panel">
+        <h4>Kredyty — postęp spłaty</h4>
+        {LOANS.map((l) => {
+          const s = loanState(l);
+          return (
+            <div className="tl-row" key={l.name}>
+              <span className="tl-name">{l.name}</span>
+              <div className="tl-track"><span style={{ width: `${s.pct}%`, background: l.color }} /></div>
+              <span className="tl-end muted">{fmtMY(NOW)} → {fmtMY(s.end)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// V4 · Kredyty w centrum
+function V4() {
+  const totalDebt = sum(LOANS.map(loanState).map((s) => s.remaining));
+  return (
+    <>
+      <div className="bud-summary">
+        <div className="bud-num"><span className="lbl">Zadłużenie łącznie</span><span className="val down">{zl(totalDebt)}</span></div>
+        <div className="bud-num"><span className="lbl">Raty miesięcznie</span><span className="val">{zl(totalInstallments)}</span></div>
+        <div className="bud-num"><span className="lbl">Wolne po ratach</span><span className="val accent">{zl(leftover)}</span></div>
+      </div>
+      <div className="loan-detail-list">
+        {LOANS.map((l) => {
+          const s = loanState(l);
+          return (
+            <div className="loan-detail" key={l.name}>
+              <div className="ld-top">
+                <b>{l.name}</b>
+                <span className="muted">{s.elapsed}/{l.count} rat · koniec {fmtMY(s.end)}</span>
+              </div>
+              <Bar pct={s.pct} color={l.color} />
+              <div className="ld-grid">
+                <span><small className="muted">Rata</small>{zl(l.installment)}</span>
+                <span><small className="muted">Spłacono</small>{zl(s.paid)}</span>
+                <span><small className="muted">Zostało</small>{zl(s.remaining)}</span>
+                <span><small className="muted">Zostało rat</small>{s.left}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
 export default function ChartLab() {
-  const [active, setActive] = useState("stocks");
   return (
     <div className="app lab">
       <Link className="back" to="/">← Wróć do aplikacji</Link>
       <h1>
-        Laboratorium — runda 8{" "}
-        <span className="instr-name">nawigacja modułów: Budżet · Giełda · Krypto · 4 propozycje</span>
+        Laboratorium — runda 9{" "}
+        <span className="instr-name">moduł Budżet · tracker · 4 propozycje układu (dane przykładowe)</span>
       </h1>
       <p className="note">
-        Docelowo AlphaBot to kilka modułów. Poniżej propozycje paska nawigacji najwyższego poziomu —
-        kliknij, aby przełączyć moduł; pod paskiem szkic zawartości reaguje na wybór.
+        Przychody, wydatki stałe i kredyty (rata, liczba rat, termin spłaty) na przykładowych danych.
+        Wybierz układ, który Ci pasuje — na jego bazie zbudujemy realny moduł.
       </p>
-
-      <div className="lab-grid">
-        <LabCard title="V1 · Górny pasek segmentowy" desc="Przełącznik obok logo, jak obecne waluty. Znajomy, kompaktowy; ikona + etykieta. Dobre dla 3–5 modułów.">
-          <VariantTopSeg active={active} setActive={setActive} />
-        </LabCard>
-        <LabCard title="V2 · Boczny pasek ikon" desc="Stała szpula po lewej (app-shell). Skaluje się na wiele modułów, robi wrażenie „platformy”; zabiera trochę szerokości.">
-          <VariantSidebar active={active} setActive={setActive} />
-        </LabCard>
-        <LabCard title="V3 · Zakładki z podkreśleniem" desc="Zakładki pod logo; akcent (kolor podkreślenia) zmienia się wraz z modułem — subtelny sygnał, gdzie jesteś.">
-          <VariantUnderline active={active} setActive={setActive} />
-        </LabCard>
-        <LabCard title="V4 · Dolny pasek (mobile)" desc="Nawigacja na dole ekranu, jak w apkach mobilnych. Kciukowo wygodne na telefonie; na desktopie mniej typowe.">
-          <VariantBottom active={active} setActive={setActive} />
-        </LabCard>
-      </div>
-
-      <div className="act-picked show">
-        Aktywny moduł: <b>{MODULES.find((m) => m.key === active)?.label}</b>
+      <div className="lab-grid budget-lab">
+        <Card title="V1 · Klasyczny bilans" desc="Przychody vs wydatki, poniżej lista kredytów z paskiem postępu, ratą, terminem i liczbą pozostałych rat. Czytelne jak wyciąg.">
+          <V1 />
+        </Card>
+        <Card title="V2 · Dashboard kafelkowy" desc="Kafelki (przychody / wydatki / zostaje / stopa oszczędności), struktura wydatków i kredyty jako karty z pierścieniem postępu.">
+          <V2 />
+        </Card>
+        <Card title="V3 · Przepływ pieniędzy" desc="Jeden pasek: przychód zjadany przez kategorie wydatków, zielona reszta to wolne środki. Kredyty jako oś czasu spłaty.">
+          <V3 />
+        </Card>
+        <Card title="V4 · Kredyty w centrum" desc="Nacisk na dług: łączne zadłużenie, suma rat, a każdy kredyt jako szczegółowa karta (rata, spłacono, zostało, harmonogram).">
+          <V4 />
+        </Card>
       </div>
     </div>
   );

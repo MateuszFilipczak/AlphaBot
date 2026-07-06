@@ -162,6 +162,36 @@ def init_db():
             )
         """)
 
+        # ---- Budżet module -------------------------------------------------
+        # Recurring monthly income/expenses. No CHECK on category (open set,
+        # validated in the API) — this enum will grow. Global (single
+        # household), so no portfolio_id.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS budget_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL CHECK (type IN ('INCOME', 'EXPENSE')),
+                name TEXT NOT NULL,
+                amount REAL NOT NULL CHECK (amount >= 0),
+                category TEXT NOT NULL DEFAULT 'inne',
+                note TEXT
+            )
+        """)
+        # Loans repaid in equal installments. Month-view derives paid/remaining
+        # /remaining-count as-of the selected month from start_month + count
+        # (pure math on the frontend); principal is the borrowed sum (interest
+        # makes it differ from installment × count).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS budget_loans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                principal REAL NOT NULL DEFAULT 0 CHECK (principal >= 0),
+                installment REAL NOT NULL CHECK (installment > 0),
+                installments_count INTEGER NOT NULL CHECK (installments_count > 0),
+                start_month TEXT NOT NULL,          -- 'YYYY-MM'
+                note TEXT
+            )
+        """)
+
         # transactions.currency (the instrument's trading currency) arrived
         # with the FX-awareness feature — add it to DBs that predate it.
         txn_cols = {r["name"] for r in conn.execute("PRAGMA table_info(transactions)")}
@@ -621,6 +651,80 @@ def get_contribution_totals(portfolio_id: int) -> tuple[float, float]:
             (portfolio_id,),
         ).fetchone()
         return float(row["inflow"]), float(row["outflow"])
+
+
+# ---- Budżet module ----------------------------------------------------------
+
+def get_budget_items(type_: str | None = None) -> list[dict]:
+    query = "SELECT * FROM budget_items"
+    params: list = []
+    if type_ is not None:
+        query += " WHERE type = ?"
+        params.append(type_)
+    query += " ORDER BY id"
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(query, params).fetchall()]
+
+
+def add_budget_item(type_: str, name: str, amount: float, category: str,
+                    note: str | None) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO budget_items (type, name, amount, category, note) VALUES (?, ?, ?, ?, ?)",
+            (type_, name, amount, category, note),
+        )
+        return cur.lastrowid
+
+
+def update_budget_item(item_id: int, name: str, amount: float, category: str,
+                       note: str | None) -> bool:
+    """Amount/name/category/note are editable; type is immutable (delete and
+    re-add to flip income↔expense). Returns False if the id doesn't exist."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE budget_items SET name = ?, amount = ?, category = ?, note = ? WHERE id = ?",
+            (name, amount, category, note, item_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_budget_item(item_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute("DELETE FROM budget_items WHERE id = ?", (item_id,)).rowcount > 0
+
+
+def get_budget_loans() -> list[dict]:
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM budget_loans ORDER BY id").fetchall()]
+
+
+def add_budget_loan(name: str, principal: float, installment: float,
+                    installments_count: int, start_month: str, note: str | None) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO budget_loans (name, principal, installment, installments_count, start_month, note)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (name, principal, installment, installments_count, start_month, note),
+        )
+        return cur.lastrowid
+
+
+def update_budget_loan(loan_id: int, name: str, principal: float, installment: float,
+                       installments_count: int, start_month: str, note: str | None) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """UPDATE budget_loans
+               SET name = ?, principal = ?, installment = ?, installments_count = ?,
+                   start_month = ?, note = ?
+               WHERE id = ?""",
+            (name, principal, installment, installments_count, start_month, note, loan_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_budget_loan(loan_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute("DELETE FROM budget_loans WHERE id = ?", (loan_id,)).rowcount > 0
 
 
 init_db()

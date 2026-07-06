@@ -54,3 +54,13 @@ export const importXtbPreview = (pid, file) => {
 };
 export const commitXtbImport = (pid, operations) =>
   post(`/api/portfolios/${pid}/import/xtb/commit`, { operations });
+
+// ---- Budżet module ----
+export const getBudgetItems = () => request("/api/budget/items");
+export const addBudgetItem = (body) => post("/api/budget/items", body);
+export const updateBudgetItem = (id, body) => put(`/api/budget/items/${id}`, body);
+export const deleteBudgetItem = (id) => request(`/api/budget/items/${id}`, { method: "DELETE" });
+export const getBudgetLoans = () => request("/api/budget/loans");
+export const addBudgetLoan = (body) => post("/api/budget/loans", body);
+export const updateBudgetLoan = (id, body) => put(`/api/budget/loans/${id}`, body);
+export const deleteBudgetLoan = (id) => request(`/api/budget/loans/${id}`, { method: "DELETE" });

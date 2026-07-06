@@ -5,6 +5,7 @@ import App from "./App.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import PositionDetail from "./pages/PositionDetail.jsx";
 import ModulePlaceholder from "./pages/ModulePlaceholder.jsx";
+import Budget from "./pages/Budget.jsx";
 import ChartLab from "./pages/ChartLab.jsx";
 import "./styles.css";
 
@@ -17,8 +18,9 @@ createRoot(document.getElementById("root")).render(
           <Route path="/" element={<Dashboard />} />
           <Route path="/position/:ticker" element={<PositionDetail />} />
         </Route>
-        {/* other modules — placeholders for now */}
-        <Route path="/budzet" element={<ModulePlaceholder moduleKey="budget" />} />
+        {/* Budżet module */}
+        <Route path="/budzet" element={<Budget />} />
+        {/* remaining modules — placeholders for now */}
         <Route path="/krypto" element={<ModulePlaceholder moduleKey="crypto" />} />
         {/* styling playground — standalone, deliberately unlinked from the UI */}
         <Route path="/lab" element={<ChartLab />} />
