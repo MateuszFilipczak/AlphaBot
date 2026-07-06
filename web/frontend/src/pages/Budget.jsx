@@ -5,7 +5,7 @@ import ConfirmModal from "../components/ConfirmModal.jsx";
 import { BudgetItemModal, CategoryManagerModal, LoanModal } from "../components/BudgetModals.jsx";
 import {
   deleteBudgetItem, deleteBudgetLoan, getBudgetCategories, getBudgetItems,
-  getBudgetLoans, getIncomeAmounts, setIncomeAmount,
+  getBudgetLoans, getIncomeAmounts, setIncomeAmount, updateBudgetItem,
 } from "../api.js";
 import { LOANS_COLOR, NO_CAT_COLOR, addMonths, loanState, monthKey, monthLabel } from "../budget.js";
 
@@ -20,6 +20,8 @@ export default function Budget() {
   const [incomeAmounts, setIncomeAmounts] = useState(null); // {item_id: amount} for month
   const [incomeDraft, setIncomeDraft] = useState({}); // per-row inline input text
   const [editingInc, setEditingInc] = useState(null); // income row id being edited
+  const [editingExp, setEditingExp] = useState(null); // expense row id being edited
+  const [expenseDraft, setExpenseDraft] = useState(""); // current expense edit text
   const [itemModal, setItemModal] = useState(null); // {type, edit?}
   const [loanModal, setLoanModal] = useState(null); // {edit?} | true
   const [catModal, setCatModal] = useState(false);
@@ -52,6 +54,18 @@ export default function Budget() {
     if ((incomeAmounts?.[itemId] ?? 0) === value) return; // unchanged
     await setIncomeAmount({ item_id: Number(itemId), month, amount: value });
     setIncomeAmounts((prev) => ({ ...(prev ?? {}), [itemId]: value }));
+  };
+
+  // inline-edit a recurring expense amount (item.amount — same every month)
+  const saveExpense = async (item) => {
+    setEditingExp(null);
+    const value = parseFloat(expenseDraft);
+    if (!(value >= 0) || value === item.amount) return; // invalid or unchanged
+    await updateBudgetItem(item.id, {
+      name: item.name, amount: value, category_id: item.category_id,
+      month: item.month, note: item.note, shared_amount: item.shared_amount,
+    });
+    refresh();
   };
 
   const catMap = useMemo(() => {
@@ -284,7 +298,26 @@ export default function Budget() {
                     <div className="bud-row" key={e.id}>
                       <span><i className="cat-dot" style={{ background: c.color }} />{e.name}<small>{c.name}</small>
                         {e.shared_amount > 0 && <span className="split-tag">½ {zl(e.shared_amount)} od żony</span>}</span>
-                      <span className="row-end"><b>{zl(e.amount)}</b>{itemMenu(e)}</span>
+                      <span className="row-end">
+                        {editingExp === e.id ? (
+                          <input
+                            className="inc-amount" type="number" step="any" min="0" inputMode="decimal" autoFocus
+                            value={expenseDraft}
+                            onChange={(ev) => setExpenseDraft(ev.target.value)}
+                            onBlur={() => saveExpense(e)}
+                            onKeyDown={(ev) => { if (ev.key === "Enter") ev.currentTarget.blur(); if (ev.key === "Escape") setEditingExp(null); }}
+                          />
+                        ) : (
+                          <button
+                            className="inc-text"
+                            onClick={() => { setExpenseDraft(String(e.amount)); setEditingExp(e.id); }}
+                            title="Kliknij, aby zmienić kwotę"
+                          >
+                            {zl(e.amount)}
+                          </button>
+                        )}
+                        {itemMenu(e)}
+                      </span>
                     </div>
                   );
                 })}
