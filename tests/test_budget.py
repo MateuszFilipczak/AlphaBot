@@ -170,3 +170,32 @@ def test_loan_shared_installment(client):
         "name": "Y", "installment": 500, "installments_count": 12,
         "start_month": "2025-01", "shared_installment": 600,
     }).status_code == 422
+
+
+# ---- Per-month income amounts -----------------------------------------------
+
+def test_income_amount_per_month(client):
+    iid = client.post("/api/budget/items", json={"type": "INCOME", "name": "Wypłata", "amount": 0}).json()["id"]
+    # no amount yet → absent
+    assert str(iid) not in client.get("/api/budget/income-amounts?month=2026-07").json()
+
+    client.put("/api/budget/income-amounts", json={"item_id": iid, "month": "2026-07", "amount": 8200})
+    client.put("/api/budget/income-amounts", json={"item_id": iid, "month": "2026-08", "amount": 7900})
+    assert client.get("/api/budget/income-amounts?month=2026-07").json()[str(iid)] == 8200
+    assert client.get("/api/budget/income-amounts?month=2026-08").json()[str(iid)] == 7900
+    # a fresh month has no amount → zeroed
+    assert str(iid) not in client.get("/api/budget/income-amounts?month=2026-09").json()
+
+    # upsert overwrites
+    client.put("/api/budget/income-amounts", json={"item_id": iid, "month": "2026-07", "amount": 8500})
+    assert client.get("/api/budget/income-amounts?month=2026-07").json()[str(iid)] == 8500
+
+    # deleting the source removes its amounts (no FK error)
+    assert client.delete(f"/api/budget/items/{iid}").status_code == 200
+    assert client.get("/api/budget/income-amounts?month=2026-07").json() == {}
+
+
+def test_income_amount_validation(client):
+    assert client.get("/api/budget/income-amounts?month=2026/07").status_code == 422
+    assert client.put("/api/budget/income-amounts", json={"item_id": 1, "month": "bad", "amount": 10}).status_code == 422
+    assert client.put("/api/budget/income-amounts", json={"item_id": 1, "month": "2026-07", "amount": -5}).status_code == 422

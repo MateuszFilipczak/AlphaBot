@@ -64,6 +64,8 @@ export const getBudgetLoans = () => request("/api/budget/loans");
 export const addBudgetLoan = (body) => post("/api/budget/loans", body);
 export const updateBudgetLoan = (id, body) => put(`/api/budget/loans/${id}`, body);
 export const deleteBudgetLoan = (id) => request(`/api/budget/loans/${id}`, { method: "DELETE" });
+export const getIncomeAmounts = (month) => request(`/api/budget/income-amounts?month=${month}`);
+export const setIncomeAmount = (body) => put("/api/budget/income-amounts", body);
 export const getBudgetCategories = () => request("/api/budget/categories");
 export const addBudgetCategory = (body) => post("/api/budget/categories", body);
 export const updateBudgetCategory = (id, body) => put(`/api/budget/categories/${id}`, body);

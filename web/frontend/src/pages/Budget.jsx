@@ -4,7 +4,8 @@ import RowMenu from "../components/RowMenu.jsx";
 import ConfirmModal from "../components/ConfirmModal.jsx";
 import { BudgetItemModal, CategoryManagerModal, LoanModal } from "../components/BudgetModals.jsx";
 import {
-  deleteBudgetItem, deleteBudgetLoan, getBudgetCategories, getBudgetItems, getBudgetLoans,
+  deleteBudgetItem, deleteBudgetLoan, getBudgetCategories, getBudgetItems,
+  getBudgetLoans, getIncomeAmounts, setIncomeAmount,
 } from "../api.js";
 import { LOANS_COLOR, NO_CAT_COLOR, addMonths, loanState, monthKey, monthLabel } from "../budget.js";
 
@@ -16,6 +17,8 @@ export default function Budget() {
   const [items, setItems] = useState(null);
   const [loans, setLoans] = useState(null);
   const [cats, setCats] = useState(null);
+  const [incomeAmounts, setIncomeAmounts] = useState(null); // {item_id: amount} for month
+  const [incomeDraft, setIncomeDraft] = useState({}); // per-row inline input text
   const [itemModal, setItemModal] = useState(null); // {type, edit?}
   const [loanModal, setLoanModal] = useState(null); // {edit?} | true
   const [catModal, setCatModal] = useState(false);
@@ -28,7 +31,27 @@ export default function Budget() {
     getBudgetLoans().then(setLoans).catch(() => setLoans([]));
     getBudgetCategories().then(setCats).catch(() => setCats([]));
   }, [tick]);
+  // per-month income amounts reload on month change too
+  useEffect(() => {
+    getIncomeAmounts(month).then(setIncomeAmounts).catch(() => setIncomeAmounts({}));
+  }, [month, tick]);
   const refresh = () => setTick((t) => t + 1);
+
+  // seed the inline income inputs whenever the amounts (month/data) change
+  useEffect(() => {
+    if (!incomeAmounts) return;
+    const d = {};
+    for (const [k, v] of Object.entries(incomeAmounts)) d[k] = String(v);
+    setIncomeDraft(d);
+  }, [incomeAmounts]);
+
+  const saveIncome = async (itemId) => {
+    const raw = incomeDraft[itemId];
+    const value = parseFloat(raw) || 0;
+    if ((incomeAmounts?.[itemId] ?? 0) === value) return; // unchanged
+    await setIncomeAmount({ item_id: Number(itemId), month, amount: value });
+    setIncomeAmounts((prev) => ({ ...(prev ?? {}), [itemId]: value }));
+  };
 
   const catMap = useMemo(() => {
     const m = new Map();
@@ -40,10 +63,12 @@ export default function Budget() {
   const incomeCats = (cats ?? []).filter((c) => c.kind === "INCOME");
 
   const view = useMemo(() => {
-    if (!items || !loans || !cats) return null;
+    if (!items || !loans || !cats || !incomeAmounts) return null;
     // recurring (month == null) always count; one-off only in their month
     const inMonth = (i) => i.month == null || i.month === month;
     const active = items.filter(inMonth);
+    // recurring income amount comes from the per-month override (0 if unset)
+    const incAmt = (i) => incomeAmounts[i.id] ?? 0;
     const incomeRec = active.filter((i) => i.type === "INCOME" && i.month == null);
     const expenseRec = active.filter((i) => i.type === "EXPENSE" && i.month == null);
     const oneOff = active.filter((i) => i.month === month);
@@ -54,7 +79,8 @@ export default function Budget() {
     const activeLoans = loanViews.filter((l) => l.s.active);
     const installmentsTotal = activeLoans.reduce((a, l) => a + l.installment, 0);
 
-    const totalIncome = active.filter((i) => i.type === "INCOME").reduce((a, i) => a + i.amount, 0);
+    const oneOffIncome = oneOff.filter((i) => i.type === "INCOME").reduce((a, i) => a + i.amount, 0);
+    const totalIncome = incomeRec.reduce((a, i) => a + incAmt(i), 0) + oneOffIncome;
     const totalExpenses = active.filter((i) => i.type === "EXPENSE").reduce((a, i) => a + i.amount, 0) + installmentsTotal;
     const leftover = totalIncome - totalExpenses;
 
@@ -89,7 +115,7 @@ export default function Budget() {
       totalIncome, totalExpenses, leftover, catSegs, totalDebt,
       shared, wifeOwes, myExpenses,
     };
-  }, [items, loans, cats, month]);
+  }, [items, loans, cats, month, incomeAmounts]);
 
   const confirmDelete = async () => {
     setDelBusy(true);
@@ -157,15 +183,28 @@ export default function Budget() {
             <div className="bud-panel">
               <div className="panel-head">
                 <h4>Przychody stałe</h4>
-                <button className="btn small" onClick={() => setItemModal({ type: "INCOME" })}>+ Wpływ</button>
+                <button className="btn small" onClick={() => setItemModal({ type: "INCOME" })}>+ Źródło</button>
               </div>
-              {view.incomeRec.length === 0 ? <div className="empty small">Brak stałych wpływów.</div> :
+              {view.incomeRec.length === 0 ? <div className="empty small">Brak źródeł wpływu. Dodaj np. Wypłatę — kwotę wpiszesz co miesiąc.</div> :
                 view.incomeRec.map((i) => (
                   <div className="bud-row" key={i.id}>
                     <span>{i.name}{i.note && <small>{i.note}</small>}</span>
-                    <span className="row-end"><b className="pnl-up">{zl(i.amount)}</b>{itemMenu(i)}</span>
+                    <span className="row-end">
+                      <input
+                        className="inc-amount"
+                        type="number" step="any" min="0" inputMode="decimal"
+                        placeholder="0"
+                        value={incomeDraft[i.id] ?? ""}
+                        onChange={(e) => setIncomeDraft((d) => ({ ...d, [i.id]: e.target.value }))}
+                        onBlur={() => saveIncome(i.id)}
+                        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                      />
+                      <span className="inc-cur">zł</span>
+                      {itemMenu(i)}
+                    </span>
                   </div>
                 ))}
+              <div className="bud-row total"><span>Razem</span><b className="pnl-up">{zl(view.totalIncome)}</b></div>
             </div>
 
             <div className="bud-panel">

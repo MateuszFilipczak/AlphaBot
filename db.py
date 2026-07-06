@@ -215,6 +215,31 @@ def init_db():
         bl_cols = {r["name"] for r in conn.execute("PRAGMA table_info(budget_loans)")}
         if "shared_installment" not in bl_cols:
             conn.execute("ALTER TABLE budget_loans ADD COLUMN shared_installment REAL NOT NULL DEFAULT 0")
+        # Recurring INCOME sources hold a name/category only; the actual amount
+        # is entered per month (salary varies), stored here. Expenses stay
+        # fixed. On first creation, seed the current month from any income
+        # amounts already entered, so existing data isn't lost.
+        income_amounts_existed = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='budget_income_amounts'"
+        ).fetchone()
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS budget_income_amounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id INTEGER NOT NULL REFERENCES budget_items(id),
+                month TEXT NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,
+                UNIQUE (item_id, month)
+            )
+        """)
+        if not income_amounts_existed:
+            cur_month = datetime.now(timezone.utc).strftime("%Y-%m")
+            for row in conn.execute(
+                "SELECT id, amount FROM budget_items WHERE type = 'INCOME' AND month IS NULL AND amount > 0"
+            ).fetchall():
+                conn.execute(
+                    "INSERT INTO budget_income_amounts (item_id, month, amount) VALUES (?, ?, ?)",
+                    (row["id"], cur_month, row["amount"]),
+                )
         # seed a well-separated default palette ONLY into an empty table, so
         # user edits/deletions stick (same posture as the starter portfolios)
         if conn.execute("SELECT COUNT(*) AS n FROM budget_categories").fetchone()["n"] == 0:
@@ -735,7 +760,30 @@ def update_budget_item(item_id: int, name: str, amount: float, category_id: int 
 
 def delete_budget_item(item_id: int) -> bool:
     with get_conn() as conn:
+        # detach per-month income amounts first so the FK doesn't reject it
+        conn.execute("DELETE FROM budget_income_amounts WHERE item_id = ?", (item_id,))
         return conn.execute("DELETE FROM budget_items WHERE id = ?", (item_id,)).rowcount > 0
+
+
+# ---- Per-month income amounts ----
+
+def get_income_amounts(month: str) -> dict[int, float]:
+    """{item_id: amount} for recurring income sources in a given month.
+    Sources without a row that month are simply absent (treated as 0)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT item_id, amount FROM budget_income_amounts WHERE month = ?", (month,)
+        ).fetchall()
+        return {r["item_id"]: r["amount"] for r in rows}
+
+
+def set_income_amount(item_id: int, month: str, amount: float):
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO budget_income_amounts (item_id, month, amount) VALUES (?, ?, ?)
+               ON CONFLICT(item_id, month) DO UPDATE SET amount = excluded.amount""",
+            (item_id, month, amount),
+        )
 
 
 # ---- Budżet categories ----

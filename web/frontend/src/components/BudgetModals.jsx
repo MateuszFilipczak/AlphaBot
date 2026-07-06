@@ -11,6 +11,9 @@ import { monthKey } from "../budget.js";
 // being viewed); recurring entries have month = null.
 export function BudgetItemModal({ type, edit = null, defaultOneOff = false, categories, viewMonth, onClose, onSaved }) {
   const isIncome = type === "INCOME";
+  // recurring income is a template (name + category); its amount is entered
+  // per month inline, so the modal hides amount/one-off/shared for it
+  const isIncomeSource = isIncome && (!edit || edit.month == null) && !defaultOneOff;
   const [name, setName] = useState(edit?.name ?? "");
   const [amount, setAmount] = useState(edit ? String(edit.amount) : "");
   const [categoryId, setCategoryId] = useState(edit?.category_id ?? categories[0]?.id ?? null);
@@ -25,8 +28,8 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
   const submit = async (e) => {
     e.preventDefault();
     if (!name.trim()) return setError("Podaj nazwę.");
-    const value = parseFloat(amount);
-    if (!(value >= 0) || amount === "") return setError("Podaj kwotę.");
+    const value = isIncomeSource ? 0 : parseFloat(amount);
+    if (!isIncomeSource && (!(value >= 0) || amount === "")) return setError("Podaj kwotę.");
     const sh = shared ? parseFloat(sharedAmount) || 0 : 0;
     if (sh > value) return setError("Udział żony nie może przekraczać kwoty.");
     setSaving(true);
@@ -35,7 +38,7 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
       name: name.trim(),
       amount: value,
       category_id: categoryId ? Number(categoryId) : null,
-      month: oneOff ? month : null,
+      month: isIncomeSource ? null : (oneOff ? month : null),
       note: note.trim() || null,
       shared_amount: sh,
     };
@@ -53,17 +56,19 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit}>
-        <h3>{edit ? `Edytuj ${noun}` : isIncome ? "Nowy wpływ" : "Nowy wydatek"}</h3>
+        <h3>{edit ? `Edytuj ${noun}` : isIncome ? "Nowe źródło wpływu" : "Nowy wydatek"}</h3>
         <div className="field">
           <label>Nazwa</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
             placeholder={isIncome ? "np. Wypłata" : "np. Prąd"} />
         </div>
         <div className="field-row">
-          <div className="field">
-            <label>Kwota (zł)</label>
-            <input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </div>
+          {!isIncomeSource && (
+            <div className="field">
+              <label>Kwota (zł)</label>
+              <input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </div>
+          )}
           <div className="field">
             <label>Kategoria</label>
             <select value={categoryId ?? ""} onChange={(e) => setCategoryId(e.target.value || null)}>
@@ -72,11 +77,18 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
             </select>
           </div>
         </div>
-        <label className="checkline">
-          <input type="checkbox" checked={oneOff} onChange={(e) => setOneOff(e.target.checked)} />
-          Jednorazowo w konkretnym miesiącu (nie co miesiąc)
-        </label>
-        {oneOff && (
+        {isIncomeSource && (
+          <div className="hint" style={{ marginBottom: 12 }}>
+            Kwotę wpisujesz osobno dla każdego miesiąca w liście przychodów.
+          </div>
+        )}
+        {!isIncome && (
+          <label className="checkline">
+            <input type="checkbox" checked={oneOff} onChange={(e) => setOneOff(e.target.checked)} />
+            Jednorazowo w konkretnym miesiącu (nie co miesiąc)
+          </label>
+        )}
+        {!isIncome && oneOff && (
           <div className="field">
             <label>Miesiąc</label>
             <input type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />

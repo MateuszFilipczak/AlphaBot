@@ -1032,6 +1032,24 @@ def remove_budget_item(item_id: int):
     return {"deleted": item_id}
 
 
+@app.get("/api/budget/income-amounts")
+def budget_income_amounts(month: str = Query(pattern=r"^\d{4}-\d{2}$")):
+    # keys must be strings in JSON
+    return {str(k): v for k, v in db.get_income_amounts(month).items()}
+
+
+class IncomeAmountIn(BaseModel):
+    item_id: int
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    amount: float = Field(ge=0)
+
+
+@app.put("/api/budget/income-amounts")
+def set_budget_income_amount(body: IncomeAmountIn):
+    db.set_income_amount(body.item_id, body.month, body.amount)
+    return {"item_id": body.item_id, "month": body.month}
+
+
 @app.get("/api/budget/categories")
 def budget_categories(kind: str | None = Query(None, pattern="^(INCOME|EXPENSE)$")):
     return db.get_budget_categories(kind)

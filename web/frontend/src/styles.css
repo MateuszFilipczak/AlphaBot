@@ -91,6 +91,12 @@ button { font: inherit; cursor: pointer; }
   border-radius: 6px; padding: 1px 6px; white-space: nowrap;
 }
 .split-note { font-size: 12px; margin-top: 8px; }
+.inc-amount {
+  width: 96px; text-align: right; background: var(--page); border: 1px solid var(--border);
+  border-radius: 7px; color: var(--ink); padding: 5px 8px; font: inherit; font-weight: 700;
+}
+.inc-amount:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.inc-cur { color: var(--muted); font-size: 12.5px; margin: 0 2px 0 -2px; }
 
 .stack-bar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; background: var(--surface-2); margin-bottom: 10px; }
 .stack-bar span + span { box-shadow: inset 1px 0 0 rgba(0,0,0,0.4); }
