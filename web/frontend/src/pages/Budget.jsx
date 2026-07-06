@@ -226,7 +226,7 @@ export default function Budget() {
 
               {view.shared.length > 0 && (
                 <div className="bud-panel">
-                  <h4>Rozliczenie z żoną — {monthLabel(month)}</h4>
+                  <h4>Rozliczenie z żoną</h4>
                   {view.shared.map((s) => (
                     <div className={`bud-row ${s.loan ? "muted-row" : ""}`} key={s.id}>
                       <span>{s.name}<small>{s.loan ? "rata kredytu · " : ""}z {zl(s.total)}</small></span>
@@ -234,7 +234,6 @@ export default function Budget() {
                     </div>
                   ))}
                   <div className="bud-row total"><span>Żona ma oddać</span><b className="accent">{zl(view.wifeOwes)}</b></div>
-                  <div className="split-note muted">Twój udział w wydatkach: {zl(view.myExpenses)} (z {zl(view.totalExpenses)})</div>
                 </div>
               )}
 
