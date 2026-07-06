@@ -89,10 +89,10 @@ export default function Budget() {
     // and active loans, this month
     const sharedItems = active
       .filter((i) => i.type === "EXPENSE" && i.shared_amount > 0)
-      .map((i) => ({ id: `i${i.id}`, name: i.name, total: i.amount, share: i.shared_amount }));
+      .map((i) => ({ id: `i${i.id}`, name: i.name, total: i.amount, share: i.shared_amount, loan: false }));
     const sharedLoans = activeLoans
       .filter((l) => l.shared_installment > 0)
-      .map((l) => ({ id: `l${l.id}`, name: l.name, total: l.installment, share: l.shared_installment }));
+      .map((l) => ({ id: `l${l.id}`, name: l.name, total: l.installment, share: l.shared_installment, loan: true }));
     const shared = [...sharedItems, ...sharedLoans];
     const wifeOwes = shared.reduce((a, s) => a + s.share, 0);
     const myExpenses = totalExpenses - wifeOwes;
@@ -228,8 +228,8 @@ export default function Budget() {
                 <div className="bud-panel">
                   <h4>Rozliczenie z żoną — {monthLabel(month)}</h4>
                   {view.shared.map((s) => (
-                    <div className="bud-row" key={s.id}>
-                      <span>{s.name}<small>z {zl(s.total)}</small></span>
+                    <div className={`bud-row ${s.loan ? "muted-row" : ""}`} key={s.id}>
+                      <span>{s.name}<small>{s.loan ? "rata kredytu · " : ""}z {zl(s.total)}</small></span>
                       <b>{zl(s.share)}</b>
                     </div>
                   ))}
