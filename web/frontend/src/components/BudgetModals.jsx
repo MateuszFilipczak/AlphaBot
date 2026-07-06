@@ -56,7 +56,7 @@ export function BudgetItemModal({ type, edit = null, defaultOneOff = false, cate
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit}>
-        <h3>{edit ? `Edytuj ${noun}` : isIncome ? "Nowe źródło wpływu" : "Nowy wydatek"}</h3>
+        <h3>{edit ? `Edytuj ${noun}` : isIncome ? "Nowy przychód" : "Nowy wydatek"}</h3>
         <div className="field">
           <label>Nazwa</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)}

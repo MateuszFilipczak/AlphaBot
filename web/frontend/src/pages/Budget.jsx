@@ -219,8 +219,8 @@ export default function Budget() {
             <div className="arr-col">
               <div className="bud-panel">
                 <div className="panel-head">
-                  <h4>Przychody stałe</h4>
-                  <button className="btn small" onClick={() => setItemModal({ type: "INCOME" })}>+ Źródło</button>
+                  <h4>Przychody</h4>
+                  <button className="btn small" onClick={() => setItemModal({ type: "INCOME" })}>+ Przychód</button>
                 </div>
                 {view.incomeRec.length === 0 ? <div className="empty small">Brak źródeł wpływu. Dodaj np. Wypłatę — kwotę wpiszesz co miesiąc.</div> :
                   view.incomeRec.map((i) => {
