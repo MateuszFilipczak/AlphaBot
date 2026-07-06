@@ -233,7 +233,7 @@ export default function Budget() {
                       <b>{zl(s.share)}</b>
                     </div>
                   ))}
-                  <div className="bud-row total"><span>Żona ma oddać</span><b className="accent">{zl(view.wifeOwes)}</b></div>
+                  <div className="bud-row total"><span>Razem</span><b className="accent">{zl(view.wifeOwes)}</b></div>
                 </div>
               )}
 
