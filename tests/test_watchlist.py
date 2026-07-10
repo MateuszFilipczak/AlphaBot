@@ -85,3 +85,14 @@ def test_cascade_delete_removes_watchlist(client):
         assert client.get(f"/api/portfolios/{pid2}/watchlist").json() == []
     finally:
         client.delete(f"/api/portfolios/{pid2}?force=true")
+
+
+def test_position_detail_for_watched_only_ticker(client, pid):
+    client.post(f"/api/portfolios/{pid}/watchlist", json={"ticker": "NVDA"})
+    r = client.get(f"/api/positions/{pid}/NVDA")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["transactions"] == [] and d["lots"] == []
+    assert d["summary"]["shares"] == 0
+    # unwatched + untraded ticker still 404s
+    assert client.get(f"/api/positions/{pid}/TSLA").status_code == 404

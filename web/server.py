@@ -1165,7 +1165,8 @@ def position_detail(portfolio_id: int, ticker: str):
     portfolio = _get_portfolio_or_404(portfolio_id)
     ticker = ticker.upper()
     txns = db.get_transactions(portfolio_id, ticker)
-    if not txns:
+    if not txns and not any(w["ticker"] == ticker for w in db.get_watchlist(portfolio_id)):
+        # neither traded nor watched here — nothing to show
         raise HTTPException(status_code=404, detail="No transactions for this ticker")
 
     state = replay_fifo(txns)

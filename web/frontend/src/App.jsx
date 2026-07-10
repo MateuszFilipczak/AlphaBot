@@ -97,7 +97,7 @@ function AddActions({ onTransaction, onWatch, onDeposit, onWithdraw, onImport, i
       </button>
       {open && (
         <div className="menu-pop act-menu">
-          <button onClick={pick(onWatch)}>👁 Obserwuj instrument</button>
+          <button onClick={pick(onWatch)}>Obserwuj instrument</button>
           <button onClick={pick(onDeposit)}>+ Wpłata</button>
           <button onClick={pick(onWithdraw)}>− Wypłata</button>
           <button onClick={pick(onImport)} disabled={importing}>

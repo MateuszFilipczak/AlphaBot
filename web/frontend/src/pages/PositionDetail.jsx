@@ -308,6 +308,15 @@ export default function PositionDetail() {
         )}
       </div>
 
+      {detail.transactions.length === 0 ? (
+        /* watched-only ticker: chart above is the point — no lots/history */
+        <div className="table-wrap" style={{ marginTop: 20 }}>
+          <div className="empty">
+            Obserwowana pozycja — brak transakcji w tym portfelu. Kliknij „Kup", aby otworzyć pierwszą.
+          </div>
+        </div>
+      ) : (
+      <>
       <h2>Otwarte pozycje</h2>
       <div className="table-wrap">
         {detail.lots.length === 0 ? (
@@ -437,6 +446,8 @@ export default function PositionDetail() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
 
       {typeModal && (
         <InstrumentTypeModal

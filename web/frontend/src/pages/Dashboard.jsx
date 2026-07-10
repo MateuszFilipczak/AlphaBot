@@ -230,7 +230,11 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {watchlist.map((w) => (
-                  <tr key={w.id}>
+                  <tr
+                    key={w.id}
+                    className="clickable"
+                    onClick={() => navigate(`/position/${w.ticker}?p=${portfolioId}`)}
+                  >
                     <td className="ticker-cell">
                       {w.ticker}
                       <span className={`badge ${typeBadgeClass(w.type)}`}>{typeLabel(w.type)}</span>
@@ -243,7 +247,7 @@ export default function Dashboard() {
                         <span className="cell-note">cena niedostępna</span>
                       )}
                     </td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <span className="row-end" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
                         <button
                           className="btn small"
