@@ -30,6 +30,7 @@ export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [deposits, setDeposits] = useState([]);
   const [watchlist, setWatchlist] = useState([]);
+  const [watchError, setWatchError] = useState(null);
   const [error, setError] = useState(null);
   const [editFlow, setEditFlow] = useState(null); // deposits row being edited
   const [deleteFlow, setDeleteFlow] = useState(null); // deposits row pending delete
@@ -59,17 +60,32 @@ export default function Dashboard() {
   useEffect(() => {
     if (!portfolioId) return;
     setSummary(null);
+    setDeposits([]);
+    setWatchlist([]);
+    setWatchError(null);
     setError(null);
     setFlowPage(1);
     setClosedPage(1);
-    getSummary(portfolioId).then(setSummary).catch((e) => setError(e.message));
-    getDeposits(portfolioId).then(setDeposits).catch(console.error);
-    getWatchlist(portfolioId).then(setWatchlist).catch(() => setWatchlist([]));
+    // cancellation guard: a slow response from a previously selected
+    // portfolio must not overwrite the newly selected one's data
+    let cancelled = false;
+    const ifLive = (set) => (v) => !cancelled && set(v);
+    getSummary(portfolioId).then(ifLive(setSummary)).catch((e) => !cancelled && setError(e.message));
+    getDeposits(portfolioId).then(ifLive(setDeposits)).catch(console.error);
+    getWatchlist(portfolioId).then(ifLive(setWatchlist)).catch(() => ifLive(setWatchlist)([]));
+    return () => {
+      cancelled = true;
+    };
   }, [portfolioId, refreshTick]);
 
   const unwatch = async (w) => {
-    await removeWatch(w.id);
-    setWatchlist((ws) => ws.filter((x) => x.id !== w.id));
+    setWatchError(null);
+    try {
+      await removeWatch(w.id);
+      setWatchlist((ws) => ws.filter((x) => x.id !== w.id));
+    } catch (err) {
+      setWatchError(err.message);
+    }
   };
 
   if (error) return <div className="empty">Błąd: {error}</div>;
@@ -216,9 +232,16 @@ export default function Dashboard() {
         </div>
       )}
 
-      {watchlist.length > 0 && (
+      {(() => {
+        // tickers with an open position already sit in the table above — hide
+        // them here (the watch entry stays and resurfaces after a full sell)
+        const openTickers = new Set(summary.positions.map((p) => p.ticker));
+        const visibleWatch = watchlist.filter((w) => !openTickers.has(w.ticker));
+        if (visibleWatch.length === 0 && !watchError) return null;
+        return (
         <>
           <h2>Obserwowane</h2>
+          {watchError && <div className="note warn">⚠ {watchError}</div>}
           <div className="table-wrap">
             <table>
               <thead>
@@ -229,7 +252,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {watchlist.map((w) => (
+                {visibleWatch.map((w) => (
                   <tr
                     key={w.id}
                     className="clickable"
@@ -241,10 +264,13 @@ export default function Dashboard() {
                       <span className="instr-name">{w.name}</span>
                     </td>
                     <td>
-                      {w.price != null ? (
-                        fmtMoney(w.price, w.currency ?? cur)
-                      ) : (
+                      {w.price == null ? (
                         <span className="cell-note">cena niedostępna</span>
+                      ) : w.currency ? (
+                        fmtMoney(w.price, w.currency)
+                      ) : (
+                        /* metadata unavailable → don't guess the currency */
+                        w.price.toLocaleString("pl-PL", { maximumFractionDigits: 2 })
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -266,7 +292,8 @@ export default function Dashboard() {
             </table>
           </div>
         </>
-      )}
+        );
+      })()}
 
       {summary.closed_positions.length > 0 && (
         <>

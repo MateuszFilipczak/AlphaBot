@@ -121,8 +121,9 @@ export default function PositionDetail() {
     try {
       await deleteTransaction(toDelete.id);
       setToDelete(null);
-      // deleting the last transaction of a ticker leaves nothing to show here
-      if (detail.transactions.length <= 1) navigate(`/gielda?p=${portfolioId}`);
+      // deleting the last transaction leaves nothing to show — unless the
+      // ticker is watched here, then the view stays valid in watch mode
+      if (detail.transactions.length <= 1 && !detail.watched) navigate(`/gielda?p=${portfolioId}`);
       else refresh();
     } catch (err) {
       setDeleteError(err.message);

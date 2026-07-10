@@ -75,16 +75,21 @@ def test_import_does_not_touch_watchlist(client, pid):
 
 
 def test_cascade_delete_removes_watchlist(client):
+    import db
+
     pid = client.post("/api/portfolios", json={"name": "Watch cascade", "currency": "USD"}).json()["id"]
     client.post(f"/api/portfolios/{pid}/watchlist", json={"ticker": "MSFT"})
     client.post(f"/api/portfolios/{pid}/deposits", json={"amount": 100, "date": "2026-01-02"})
     assert client.delete(f"/api/portfolios/{pid}?force=true").status_code == 200
-    # recreate a portfolio and make sure no orphaned rows leak anywhere
+    # no orphaned rows for the DELETED portfolio's id (query the table
+    # directly — a fresh portfolio would get a new id, proving nothing)
+    assert db.get_watchlist(pid) == []
+
+    # plain (non-cascade) delete of a watch-only portfolio cleans up too
     pid2 = client.post("/api/portfolios", json={"name": "Watch cascade 2", "currency": "USD"}).json()["id"]
-    try:
-        assert client.get(f"/api/portfolios/{pid2}/watchlist").json() == []
-    finally:
-        client.delete(f"/api/portfolios/{pid2}?force=true")
+    client.post(f"/api/portfolios/{pid2}/watchlist", json={"ticker": "AAPL"})
+    assert client.delete(f"/api/portfolios/{pid2}").status_code == 200
+    assert db.get_watchlist(pid2) == []
 
 
 def test_position_detail_for_watched_only_ticker(client, pid):
@@ -94,5 +99,6 @@ def test_position_detail_for_watched_only_ticker(client, pid):
     d = r.json()
     assert d["transactions"] == [] and d["lots"] == []
     assert d["summary"]["shares"] == 0
+    assert d["watched"] is True
     # unwatched + untraded ticker still 404s
     assert client.get(f"/api/positions/{pid}/TSLA").status_code == 404

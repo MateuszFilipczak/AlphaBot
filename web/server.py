@@ -1006,17 +1006,23 @@ class WatchIn(BaseModel):
 @app.get("/api/portfolios/{portfolio_id}/watchlist")
 def watchlist(portfolio_id: int):
     """Watched tickers enriched with cached instrument metadata and a current
-    quote. Fail-soft like everywhere else: no metadata/price → nulls."""
+    quote — prices fetched in parallel and metadata in one batch, like the
+    summary endpoint. Fail-soft like everywhere else: no metadata/price →
+    nulls."""
     _get_portfolio_or_404(portfolio_id)
+    rows = db.get_watchlist(portfolio_id)
+    tickers = sorted({w["ticker"] for w in rows})
+    prices = _prices_for(tickers)
+    instruments = db.get_instruments(tickers)
     out = []
-    for w in db.get_watchlist(portfolio_id):
-        inst = db.get_instrument(w["ticker"]) or _ensure_instrument(w["ticker"])
+    for w in rows:
+        inst = instruments.get(w["ticker"]) or _ensure_instrument(w["ticker"])
         out.append({
             **w,
             "name": (inst or {}).get("name") or w["ticker"],
             "type": (inst or {}).get("type") or "EQUITY",
             "currency": (inst or {}).get("currency"),
-            "price": _cached_price(w["ticker"]),
+            "price": prices.get(w["ticker"]),
         })
     return out
 
@@ -1165,7 +1171,8 @@ def position_detail(portfolio_id: int, ticker: str):
     portfolio = _get_portfolio_or_404(portfolio_id)
     ticker = ticker.upper()
     txns = db.get_transactions(portfolio_id, ticker)
-    if not txns and not any(w["ticker"] == ticker for w in db.get_watchlist(portfolio_id)):
+    watched = any(w["ticker"] == ticker for w in db.get_watchlist(portfolio_id))
+    if not txns and not watched:
         # neither traded nor watched here — nothing to show
         raise HTTPException(status_code=404, detail="No transactions for this ticker")
 
@@ -1187,6 +1194,7 @@ def position_detail(portfolio_id: int, ticker: str):
     return {
         "ticker": ticker,
         "instrument": inst,  # {name, type, exchange, currency} or None
+        "watched": watched,  # on this portfolio's watchlist
         "currency": icur,
         "portfolio_currency": portfolio["currency"],
         # current instrument→portfolio rate, for ≈-converting rows that lack a
