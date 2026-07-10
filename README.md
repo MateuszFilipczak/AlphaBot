@@ -112,6 +112,10 @@ inwestycyjne, pod `/gielda`), potem moduł Budżet.
   więc typ można nadpisać ręcznie (szczegóły pozycji → ⋯ → „Zmień typ instrumentu")
 - **Odporność na braki danych**: ceny NaN/brakujące z yfinance nigdy nie wywalają API — pozycja bez
   wyceny liczy się do sumy po koszcie zakupu, z adnotacją "cena niedostępna"
+- **Obserwowane** — lista obserwowanych instrumentów per portfel (sekcja pod otwartymi pozycjami):
+  ticker z autocomplete dodajesz z menu „+ Transakcja ▾ → Obserwuj instrument", widzisz aktualną cenę,
+  jednym klikiem „Kup" otwierasz transakcję. Lista jest niezależna od transakcji — ponowny import
+  danych z brokera nigdy jej nie zmienia
 - **Import z XTB** (przycisk „Importuj" → „XTB (xlsx)"): wczytuje eksport konta z XTB (arkusz
   Cash Operations) — zakupy/sprzedaże (w tym wolumeny częściowe `0.228/1.228`), wpłaty
   i przewalutowania PLN→EUR. Przed zapisem pokazuje podgląd z checkboxami: tickery XTB mapowane

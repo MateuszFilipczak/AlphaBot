@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../App.jsx";
-import { deleteDeposit, getDeposits, getSummary } from "../api.js";
+import { deleteDeposit, getDeposits, getSummary, getWatchlist, removeWatch } from "../api.js";
 import { fmtDate, fmtMoney, fmtPct, fmtShares, pnlClass, typeBadgeClass, typeLabel } from "../format.js";
 import PortfolioChart from "../components/PortfolioChart.jsx";
 import DepositModal from "../components/DepositModal.jsx";
@@ -26,9 +26,10 @@ function flowLabel(d) {
 }
 
 export default function Dashboard() {
-  const { portfolio, portfolioId, refreshTick, refresh } = useApp();
+  const { portfolio, portfolioId, refreshTick, refresh, openTransaction } = useApp();
   const [summary, setSummary] = useState(null);
   const [deposits, setDeposits] = useState([]);
+  const [watchlist, setWatchlist] = useState([]);
   const [error, setError] = useState(null);
   const [editFlow, setEditFlow] = useState(null); // deposits row being edited
   const [deleteFlow, setDeleteFlow] = useState(null); // deposits row pending delete
@@ -63,7 +64,13 @@ export default function Dashboard() {
     setClosedPage(1);
     getSummary(portfolioId).then(setSummary).catch((e) => setError(e.message));
     getDeposits(portfolioId).then(setDeposits).catch(console.error);
+    getWatchlist(portfolioId).then(setWatchlist).catch(() => setWatchlist([]));
   }, [portfolioId, refreshTick]);
+
+  const unwatch = async (w) => {
+    await removeWatch(w.id);
+    setWatchlist((ws) => ws.filter((x) => x.id !== w.id));
+  };
 
   if (error) return <div className="empty">Błąd: {error}</div>;
   if (!summary) return <div className="loading">Ładowanie portfela…</div>;
@@ -207,6 +214,54 @@ export default function Dashboard() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {watchlist.length > 0 && (
+        <>
+          <h2>Obserwowane</h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Aktualna cena</th>
+                  <th aria-label="Akcje wiersza"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {watchlist.map((w) => (
+                  <tr key={w.id}>
+                    <td className="ticker-cell">
+                      {w.ticker}
+                      <span className={`badge ${typeBadgeClass(w.type)}`}>{typeLabel(w.type)}</span>
+                      <span className="instr-name">{w.name}</span>
+                    </td>
+                    <td>
+                      {w.price != null ? (
+                        fmtMoney(w.price, w.currency ?? cur)
+                      ) : (
+                        <span className="cell-note">cena niedostępna</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className="row-end" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                        <button
+                          className="btn small"
+                          onClick={() => openTransaction({ ticker: w.ticker, type: "BUY" })}
+                        >
+                          Kup
+                        </button>
+                        <RowMenu label="Menu obserwowanego" items={[
+                          { label: "Przestań obserwować", danger: true, onClick: () => unwatch(w) },
+                        ]} />
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {summary.closed_positions.length > 0 && (

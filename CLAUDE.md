@@ -62,8 +62,10 @@ migrate automatically in `db._migrate_legacy()` (idempotent — the old table is
 
 **Web app:** `web/server.py` (FastAPI) exposes `/api/*` (summary, deposits, transaction CRUD, position
 detail with lots, OHLC chart data with transaction markers, instrument metadata, Yahoo ticker-search
-proxy) and serves the built React SPA from `web/frontend/dist` with an index.html catch-all for
-client-side routes. Quotes go through a 60s TTL cache, FX rates (Yahoo `EURPLN=X`-style pairs) through
+proxy, per-portfolio watchlist) and serves the built React SPA from `web/frontend/dist` with an
+index.html catch-all for client-side routes. The watchlist (`watchlist` table, "Obserwowane" section
+under open positions, added via the split-button menu) is deliberately separate from
+transactions/deposits so broker imports never touch it; portfolio deletes clean it up. Quotes go through a 60s TTL cache, FX rates (Yahoo `EURPLN=X`-style pairs) through
 a 15-min one. The frontend (React + Vite + lightweight-charts, dark theme, Polish copy) keeps the
 active portfolio in the URL (`?p=`); after any write the views refetch via a shared refresh tick — no
 page reloads.

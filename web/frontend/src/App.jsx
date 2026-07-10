@@ -8,6 +8,7 @@ import PortfolioModal from "./components/PortfolioModal.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
 import RowMenu from "./components/RowMenu.jsx";
 import ModuleBar from "./components/ModuleNav.jsx";
+import WatchModal from "./components/WatchModal.jsx";
 import { useXtbImport } from "./components/ImportModal.jsx";
 
 // closes a dropdown on outside click or Escape while it's open
@@ -63,8 +64,8 @@ function PortfolioSwitcher({ portfolios, activeId, onSelect, onNew }) {
 }
 
 // Split action button: primary "+ Transakcja" one click, caret opens the rest
-// (Wpłata / Wypłata / Import). Menu closes on outside click or Escape.
-function AddActions({ onTransaction, onDeposit, onWithdraw, onImport, importing }) {
+// (Obserwuj / Wpłata / Wypłata / Import). Menu closes on outside click or Escape.
+function AddActions({ onTransaction, onWatch, onDeposit, onWithdraw, onImport, importing }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useDismissable(open, () => setOpen(false));
@@ -96,6 +97,7 @@ function AddActions({ onTransaction, onDeposit, onWithdraw, onImport, importing 
       </button>
       {open && (
         <div className="menu-pop act-menu">
+          <button onClick={pick(onWatch)}>👁 Obserwuj instrument</button>
           <button onClick={pick(onDeposit)}>+ Wpłata</button>
           <button onClick={pick(onWithdraw)}>− Wypłata</button>
           <button onClick={pick(onImport)} disabled={importing}>
@@ -198,6 +200,7 @@ export default function App() {
   const [searchParams] = useSearchParams();
   const [txModal, setTxModal] = useState(null); // null | {ticker?, type?, edit?}
   const [cashModal, setCashModal] = useState(null); // null | "deposit" | "withdraw"
+  const [watchModal, setWatchModal] = useState(false);
   const [portfolioModal, setPortfolioModal] = useState(false);
   const [renameModal, setRenameModal] = useState(null); // portfolio being renamed
   const [deleteModal, setDeleteModal] = useState(null); // portfolio pending delete
@@ -303,6 +306,7 @@ export default function App() {
             <div className="actions">
               <AddActions
                 onTransaction={() => setTxModal({})}
+                onWatch={() => setWatchModal(true)}
                 onDeposit={() => setCashModal("deposit")}
                 onWithdraw={() => setCashModal("withdraw")}
                 onImport={xtb.pickFile}
@@ -414,6 +418,16 @@ export default function App() {
             onClose={() => setCashModal(null)}
             onSaved={() => {
               setCashModal(null);
+              ctx.refresh();
+            }}
+          />
+        )}
+        {watchModal && portfolio && (
+          <WatchModal
+            portfolio={portfolio}
+            onClose={() => setWatchModal(false)}
+            onSaved={() => {
+              setWatchModal(false);
               ctx.refresh();
             }}
           />

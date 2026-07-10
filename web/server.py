@@ -997,6 +997,47 @@ def commit_xtb_import(portfolio_id: int, body: ImportCommitIn):
     return {"imported": imported, "skipped_duplicates": skipped}
 
 
+# ---- Watchlist ----------------------------------------------------------------
+
+class WatchIn(BaseModel):
+    ticker: str = Field(min_length=1, max_length=12)
+
+
+@app.get("/api/portfolios/{portfolio_id}/watchlist")
+def watchlist(portfolio_id: int):
+    """Watched tickers enriched with cached instrument metadata and a current
+    quote. Fail-soft like everywhere else: no metadata/price → nulls."""
+    _get_portfolio_or_404(portfolio_id)
+    out = []
+    for w in db.get_watchlist(portfolio_id):
+        inst = db.get_instrument(w["ticker"]) or _ensure_instrument(w["ticker"])
+        out.append({
+            **w,
+            "name": (inst or {}).get("name") or w["ticker"],
+            "type": (inst or {}).get("type") or "EQUITY",
+            "currency": (inst or {}).get("currency"),
+            "price": _cached_price(w["ticker"]),
+        })
+    return out
+
+
+@app.post("/api/portfolios/{portfolio_id}/watchlist", status_code=201)
+def create_watch(portfolio_id: int, body: WatchIn):
+    _get_portfolio_or_404(portfolio_id)
+    ticker = body.ticker.upper().strip()
+    try:
+        return {"id": db.add_watch(portfolio_id, ticker)}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail=f"{ticker} jest już obserwowany w tym portfelu")
+
+
+@app.delete("/api/watchlist/{watch_id}")
+def delete_watch(watch_id: int):
+    if not db.remove_watch(watch_id):
+        raise HTTPException(status_code=404, detail="Wpis nie istnieje")
+    return {"deleted": watch_id}
+
+
 # ---- Budżet module ----------------------------------------------------------
 # Recurring income/expenses + loans. The month-view math (which loan is active
 # in a given month, how many installments are paid) is pure and lives on the

@@ -141,6 +141,16 @@ def init_db():
                 fetched_at TEXT NOT NULL
             )
         """)
+        # Watched tickers per portfolio. Deliberately separate from
+        # transactions/deposits, so broker imports never touch it.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                portfolio_id INTEGER NOT NULL REFERENCES portfolios(id),
+                ticker TEXT NOT NULL,
+                UNIQUE (portfolio_id, ticker)
+            )
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS signals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -514,6 +524,7 @@ def portfolio_is_empty(portfolio_id: int) -> bool:
 
 def delete_portfolio(portfolio_id: int):
     with get_conn() as conn:
+        conn.execute("DELETE FROM watchlist WHERE portfolio_id = ?", (portfolio_id,))
         conn.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
 
 
@@ -527,8 +538,33 @@ def delete_portfolio_cascade(portfolio_id: int) -> tuple[int, int]:
         deps = conn.execute(
             "DELETE FROM deposits WHERE portfolio_id = ?", (portfolio_id,)
         ).rowcount
+        conn.execute("DELETE FROM watchlist WHERE portfolio_id = ?", (portfolio_id,))
         conn.execute("DELETE FROM portfolios WHERE id = ?", (portfolio_id,))
         return txns, deps
+
+
+# ---- Watchlist ---------------------------------------------------------------
+
+def get_watchlist(portfolio_id: int) -> list[dict]:
+    with get_conn() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM watchlist WHERE portfolio_id = ? ORDER BY id", (portfolio_id,)
+        ).fetchall()]
+
+
+def add_watch(portfolio_id: int, ticker: str) -> int:
+    """Raises sqlite3.IntegrityError when the ticker is already watched here."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO watchlist (portfolio_id, ticker) VALUES (?, ?)",
+            (portfolio_id, ticker.upper()),
+        )
+        return cur.lastrowid
+
+
+def remove_watch(watch_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute("DELETE FROM watchlist WHERE id = ?", (watch_id,)).rowcount > 0
 
 
 # ---- Transactions -----------------------------------------------------------

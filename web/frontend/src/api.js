@@ -47,6 +47,9 @@ export const getChart = (ticker, range, pid) =>
   // no explicit interval — the server picks one per range (15m for 1d, 1h for 5d, else 1d)
   request(`/api/chart/${ticker}?range=${range}${pid ? `&portfolio_id=${pid}` : ""}`);
 export const searchTickers = (q) => request(`/api/search?q=${encodeURIComponent(q)}`);
+export const getWatchlist = (pid) => request(`/api/portfolios/${pid}/watchlist`);
+export const addWatch = (pid, ticker) => post(`/api/portfolios/${pid}/watchlist`, { ticker });
+export const removeWatch = (id) => request(`/api/watchlist/${id}`, { method: "DELETE" });
 export const importXtbPreview = (pid, file) => {
   const form = new FormData(); // browser sets the multipart Content-Type itself
   form.append("file", file);
